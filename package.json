@@ -1,0 +1,52 @@
+{
+  "name": "impact-mapper",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "scan": "tsx scanner/cli.ts scan",
+    "build:cli": "esbuild scanner/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=bin/impact-mapper.mjs --external:web-tree-sitter --external:tree-sitter-wasms --external:@anthropic-ai/sdk --external:zod",
+    "test": "tsx --test tests/*.test.ts",
+    "prepublishOnly": "npm run build:cli",
+    "predev": "node scripts/copy-grammars.mjs",
+    "prebuild": "node scripts/copy-grammars.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tree-sitter-wasms": "^0.1.12",
+    "web-tree-sitter": "^0.22.6",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.25.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "esbuild": "^0.25.12",
+    "eslint": "^9.25.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "globals": "^16.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.30.1",
+    "vite": "^6.3.5"
+  },
+  "bin": {
+    "impact-mapper": "bin/impact-mapper.mjs"
+  },
+  "description": "Paste a feature requirement, see every screen, API, data store, permission and test it touches. Any stack.",
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}
