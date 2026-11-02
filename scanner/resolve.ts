@@ -83,7 +83,8 @@ export class Resolver {
 
   private exact(pathNoExt: string): string[] {
     const p = normalize(pathNoExt).toLowerCase().replace(/^\.\//, "");
-    const hit = this.byNoExt.get(p) ?? this.byNoExt.get(`${p}/index`) ?? this.byNoExt.get(`${p}/__init__`);
+    const hit =
+      this.byNoExt.get(p) ?? this.byNoExt.get(`${p}/index`) ?? this.byNoExt.get(`${p}/__init__`) ?? this.byNoExt.get(`${p}/mod`);
     return hit ? [hit] : [];
   }
 
@@ -150,13 +151,42 @@ export class Resolver {
         }
         return this.suffix(spec.replace(/\./g, "/"), from);
       }
+      case "rust": {
+        // crate::models::user::User -> models/user.rs or models/user/mod.rs; self/super are relative.
+        let base = "";
+        let rest = spec.replace(/^crate::/, "");
+        if (/^(self|super)::/.test(spec)) {
+          base = dirname(from);
+          while (rest.startsWith("super::")) {
+            base = dirname(base);
+            rest = rest.slice(7);
+          }
+          rest = rest.replace(/^self::/, "");
+        }
+        const parts = rest.split("::");
+        for (let n = parts.length; n > 0; n--) {
+          const p = parts.slice(0, n).join("/");
+          const hit = base ? this.exact(join(base, p)) : this.suffix(p, from);
+          if (hit.length) return hit;
+        }
+        return [];
+      }
+      case "kotlin":
+      case "scala":
       case "java": {
         if (spec.endsWith(".*")) {
           const pkg = spec.slice(0, -2);
           return (this.byNamespace.get(pkg) ?? []).slice(0, 25);
         }
         const hit = this.suffix(spec.replace(/\./g, "/"), from);
-        return hit.length ? hit : this.suffix(spec.split(".").slice(0, -1).join("/"), from);
+        if (hit.length) return hit;
+        // Kotlin doesn't require folders to mirror packages: find the class among
+        // the files that declare its package.
+        const cls = spec.split(".").pop()!.toLowerCase();
+        const inPackage = (this.byNamespace.get(spec.split(".").slice(0, -1).join(".")) ?? []).filter(
+          (id) => stripExt(id).split("/").pop()!.toLowerCase() === cls,
+        );
+        return inPackage.length ? inPackage : this.suffix(spec.split(".").slice(0, -1).join("/"), from);
       }
       case "go": {
         for (const m of this.goModules) {

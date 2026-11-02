@@ -40,6 +40,7 @@ const CALL_TYPES = new Set([
   "member_call_expression",
   "scoped_call_expression",
   "new_expression",
+  "constructor_invocation",
   "object_creation_expression",
 ]);
 const DECORATOR_TYPES = new Set(["decorator", "annotation", "marker_annotation", "attribute"]);
@@ -57,6 +58,13 @@ const DEFINITION_TYPES = new Set([
   "function_declaration",
   "function_definition",
   "method_definition",
+  "function_item",
+  "struct_item",
+  "enum_item",
+  "trait_item",
+  "object_definition",
+  "trait_definition",
+  "object_declaration",
   "method_declaration",
   "method",
   "module",
@@ -85,9 +93,12 @@ const ENTITY_DECORATOR = /^(entity|table|document|schema|model)$/i;
 
 /** Text of a call's callee: everything before the argument list. */
 function calleeOf(node: Node): string {
-  const text = node.text;
-  const open = text.indexOf("(");
-  return (open >= 0 ? text.slice(0, open) : text).replace(/^(new|@|\[)\s*/, "").trim().slice(-80);
+  // In a chain like Router::new().route("/x") the callee is ".route", not "Router::new".
+  const fn = node.childForFieldName("function");
+  const open = node.text.indexOf("(");
+  let text = fn ? fn.text : open >= 0 ? node.text.slice(0, open) : node.text;
+  if (fn && text.includes(")")) text = text.slice(text.lastIndexOf(")") + 1);
+  return text.replace(/^(new|@|\[)\s*/, "").trim().slice(-80);
 }
 
 function lastSegment(callee: string): string {
@@ -103,7 +114,11 @@ function stringValue(node: Node): string {
 }
 
 function nameOf(node: Node): string | undefined {
-  return node.childForFieldName("name")?.text;
+  // Kotlin's grammar has no "name" field; the name is the first identifier child.
+  return (
+    node.childForFieldName("name")?.text ??
+    node.namedChildren.find((c) => c.type === "simple_identifier" || c.type === "type_identifier")?.text
+  );
 }
 
 /** The declaration a decorator or annotation belongs to. */
@@ -190,6 +205,12 @@ function importsOf(node: Node, lang: string): string[] {
         return s ? [stringValue(s)] : [];
       }
       return [];
+    case "kotlin":
+    case "scala":
+      return t === "import_header" || t === "import_declaration" ? [node.text.replace(/^import\s+|\.\*$|\s+as\s+\w+$/g, "").trim()] : [];
+    case "rust":
+      // use crate::models::user::{User, Role}; -> "crate::models::user"
+      return t === "use_declaration" ? [node.text.replace(/^(pub\s+)?use\s+|;$/g, "").replace(/::\{[\s\S]*\}$|::\*$/, "").trim()] : [];
     case "ruby":
       if (t === "call") {
         const m = node.childForFieldName("method")?.text;
@@ -206,7 +227,8 @@ function namespaceOf(node: Node, lang: string): string | undefined {
   const t = node.type;
   if (lang === "csharp" && (t === "namespace_declaration" || t === "file_scoped_namespace_declaration")) return nameOf(node);
   if (lang === "php" && t === "namespace_definition") return nameOf(node);
-  if (lang === "java" && t === "package_declaration") return node.text.replace(/^package\s+|;$/g, "").trim();
+  if ((lang === "java" && t === "package_declaration") || (lang === "kotlin" && t === "package_header"))
+    return node.text.replace(/^package\s+|;$/g, "").trim();
   if (lang === "go" && t === "package_clause") return node.namedChildren[0]?.text;
   return undefined;
 }
@@ -257,7 +279,7 @@ export function extractFacts(tree: Parser.Tree, lang: string): FileFacts {
 
     // Find what the string is an argument to: a call, or a decorator/annotation.
     let context: Node | undefined;
-    for (let n: Node | null = node.parent, depth = 0; n && depth < 4; n = n.parent, depth++) {
+    for (let n: Node | null = node.parent, depth = 0; n && depth < 5; n = n.parent, depth++) {
       if (CALL_TYPES.has(n.type) || DECORATOR_TYPES.has(n.type)) {
         context = n;
         break;

@@ -5,7 +5,7 @@
 import Parser from "web-tree-sitter";
 import { MAP_VERSION, type Edge, type FileNode, type SystemMap, type Tag } from "../shared/map.ts";
 import { extractFacts, type FileFacts } from "./extract.ts";
-import { LANGUAGES, familyOf } from "./languages.ts";
+import { LANGUAGES, familyOf, prepareSource } from "./languages.ts";
 import { Resolver } from "./resolve.ts";
 import { routeScore } from "./routes.ts";
 
@@ -63,18 +63,23 @@ export async function scanSources(input: ScanInput): Promise<SystemMap> {
     return p;
   };
 
-  const facts = new Map<string, FileFacts & { lang: string; loc: number }>();
+  // `lang` is what the file is (vue); `codeLang` is what its code was parsed as (typescript).
+  const facts = new Map<string, FileFacts & { lang: string; codeLang: string; loc: number }>();
   let done = 0;
   for (const src of input.files) {
     let text = "";
     try {
       text = await src.read();
-      const tree = (await parserFor(src.lang)).parse(text);
-      facts.set(src.id, { ...extractFacts(tree, src.lang), lang: src.lang, loc: text.split("\n").length });
+      const { lang: codeLang, code, templateText } = prepareSource(src.lang, text);
+      const tree = (await parserFor(codeLang)).parse(code);
+      const f = extractFacts(tree, codeLang);
       tree.delete();
+      f.texts = [...new Set([...f.texts, ...templateText])].slice(0, 80);
+      facts.set(src.id, { ...f, lang: src.lang, codeLang, loc: text.split("\n").length });
     } catch {
       // A file that can't be read or parsed is still a node; it just has no facts.
-      facts.set(src.id, { imports: [], importNames: {}, texts: [], namespaces: [], symbols: [], routes: [], tables: [], events: [], lang: src.lang, loc: text.split("\n").length });
+      const empty = { imports: [], importNames: {}, texts: [], namespaces: [], symbols: [], routes: [], tables: [], events: [] };
+      facts.set(src.id, { ...empty, lang: src.lang, codeLang: src.lang, loc: text.split("\n").length });
     }
     input.onProgress?.(++done, input.files.length);
   }
@@ -107,7 +112,7 @@ export async function scanSources(input: ScanInput): Promise<SystemMap> {
     for (const spec of f.imports) {
       // The label lists the names imported, so a match on a function name can follow it.
       const names = f.importNames[spec]?.slice(0, 6).join(", ");
-      for (const to of resolver.resolve(id, spec, f.lang)) addEdge({ from: id, to, type: "import", confidence: 1, ...(names ? { label: names } : {}) });
+      for (const to of resolver.resolve(id, spec, f.codeLang)) addEdge({ from: id, to, type: "import", confidence: 1, ...(names ? { label: names } : {}) });
     }
   }
 

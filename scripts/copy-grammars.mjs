@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const out = "public/grammars";
 const grammars = dirname(require.resolve("tree-sitter-wasms/package.json"));
 const runtime = dirname(require.resolve("web-tree-sitter"));
-const languages = ["typescript", "tsx", "javascript", "python", "java", "go", "c_sharp", "php", "ruby"];
+const languages = ["typescript", "tsx", "javascript", "python", "java", "go", "c_sharp", "php", "ruby", "kotlin", "rust", "scala"];
 
 mkdirSync(out, { recursive: true });
 copyFileSync(join(runtime, "tree-sitter.wasm"), join(out, "tree-sitter.wasm"));

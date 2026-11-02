@@ -210,7 +210,7 @@ export function analyze(map: SystemMap, requirement: string, opts: AnalyzeOption
   for (const s of scored) {
     if (seedSet.size >= maxSeeds + 6 || s.score < top * 0.2) break;
     const g = groupOf(s.f.file.id);
-    if ((perGroup.get(g) ?? 0) < 2) {
+    if ((perGroup.get(g) ?? 0) < 3) {
       perGroup.set(g, (perGroup.get(g) ?? 0) + 1);
       seedSet.add(s);
     }

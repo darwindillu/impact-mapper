@@ -18,7 +18,26 @@ export const LANGUAGES: Record<string, LanguageSpec> = {
   csharp: { grammar: "c_sharp", extensions: [".cs"] },
   php: { grammar: "php", extensions: [".php"] },
   ruby: { grammar: "ruby", extensions: [".rb"] },
+  kotlin: { grammar: "kotlin", extensions: [".kt", ".kts"] },
+  rust: { grammar: "rust", extensions: [".rs"] },
+  scala: { grammar: "scala", extensions: [".scala"] },
+  // Single-file components: their <script> is parsed as TypeScript or JavaScript.
+  vue: { grammar: "typescript", extensions: [".vue"] },
+  svelte: { grammar: "typescript", extensions: [".svelte"] },
 };
+
+/**
+ * For a .vue or .svelte file: its script as TypeScript/JavaScript, and its
+ * template's visible text. Other files pass through.
+ */
+export function prepareSource(lang: string, text: string): { lang: string; code: string; templateText: string[] } {
+  if (lang !== "vue" && lang !== "svelte") return { lang, code: text, templateText: [] };
+  const scripts = [...text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+  const ts = scripts.some((m) => /lang=["']?ts/.test(m[1]));
+  const template = text.replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>/gi, "");
+  const templateText = [...template.matchAll(/>([^<>{}]+)</g)].map((m) => m[1].replace(/\s+/g, " ").trim()).filter((s) => s.includes(" "));
+  return { lang: ts ? "typescript" : "javascript", code: scripts.map((m) => m[2]).join("\n"), templateText };
+}
 
 export function languageFor(path: string): string | undefined {
   const lower = path.toLowerCase();
