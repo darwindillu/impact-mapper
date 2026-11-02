@@ -1,0 +1,23 @@
+{
+  "name": "impact-mapper-vscode",
+  "displayName": "Impact Mapper",
+  "description": "See which screens, APIs, data, permissions and tests a feature or your current changes will touch, in any stack.",
+  "version": "0.1.0",
+  "publisher": "impact-mapper",
+  "license": "MIT",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Other"],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "impactMapper.mapRequirement", "title": "Impact Mapper: Map a requirement" },
+      { "command": "impactMapper.mapChanges", "title": "Impact Mapper: Map my changes" },
+      { "command": "impactMapper.rescan", "title": "Impact Mapper: Rescan the workspace" }
+    ]
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  }
+}

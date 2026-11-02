@@ -1,0 +1,71 @@
+name: Impact Mapper
+description: Comment on a pull request with what its changed files could break (screens, APIs, data, permissions, tests).
+branding:
+  icon: target
+  color: blue
+
+inputs:
+  base:
+    description: Ref to compare with. Defaults to the pull request's base commit.
+    required: false
+    default: ""
+  path:
+    description: Folder to scan, relative to the repository root.
+    required: false
+    default: "."
+  comment:
+    description: Post the result as a pull request comment (true/false). The Markdown is also written to the job summary.
+    required: false
+    default: "true"
+  github-token:
+    description: Token used to post the comment.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  report:
+    description: Path to the Markdown report.
+    value: ${{ steps.map.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Install Impact Mapper
+      shell: bash
+      run: npm ci --prefix "${{ github.action_path }}" --no-audit --no-fund
+
+    - name: Map the impact of this pull request
+      id: map
+      shell: bash
+      env:
+        BASE: ${{ inputs.base || github.event.pull_request.base.sha }}
+      run: |
+        if [ -z "$BASE" ]; then echo "No base ref: run this on pull_request events or set the base input." >&2; exit 1; fi
+        report="$RUNNER_TEMP/impact.md"
+        {
+          echo "<!-- impact-mapper -->"
+          "${{ github.action_path }}/node_modules/.bin/tsx" "${{ github.action_path }}/scanner/cli.ts" diff --repo "${{ inputs.path }}" --base "$BASE"
+        } > "$report"
+        cat "$report" >> "$GITHUB_STEP_SUMMARY"
+        echo "report=$report" >> "$GITHUB_OUTPUT"
+
+    - name: Comment on the pull request
+      if: inputs.comment == 'true' && github.event.pull_request.number
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR: ${{ github.event.pull_request.number }}
+        REPORT: ${{ steps.map.outputs.report }}
+      run: |
+        # Update the previous Impact Mapper comment instead of adding a new one on every push.
+        existing=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
+          --jq '[.[] | select(.body | startswith("<!-- impact-mapper -->"))][0].id // empty')
+        if [ -n "$existing" ]; then
+          gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -F body=@"$REPORT" > /dev/null
+        else
+          gh api "repos/${{ github.repository }}/issues/$PR/comments" -F body=@"$REPORT" > /dev/null
+        fi

@@ -1,0 +1,18 @@
+# Copy to .github/workflows/impact-mapper.yml in the repository you want mapped.
+name: Impact map
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  impact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the diff needs the base commit and the 12-month history
+      # Replace OWNER with the account the Impact Mapper repository lives under.
+      - uses: OWNER/impact-mapper@main

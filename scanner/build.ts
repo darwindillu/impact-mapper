@@ -10,19 +10,25 @@ import type { SystemMap } from "../shared/map.ts";
 import { scanSources, type ScanInput } from "./core.ts";
 import { CONFIG_FILES, keepDir, keepFile } from "./languages.ts";
 
-const require = createRequire(import.meta.url);
 
 export interface ScanOptions {
   roots: string[];
   name?: string;
   /** Add per-file change history from git when a root is a repository (default true). */
   git?: boolean;
+  /**
+   * Folder holding tree-sitter.wasm and the tree-sitter-<lang>.wasm grammars,
+   * for bundles without node_modules (the VS Code extension). Default: the
+   * installed packages.
+   */
+  grammarDir?: string;
   onProgress?: (done: number, total: number) => void;
 }
 
-export async function scan({ roots, name, git = true, onProgress }: ScanOptions): Promise<{ map: SystemMap; sources: Map<string, string> }> {
-  await Parser.init();
-  const grammarDir = join(dirname(require.resolve("tree-sitter-wasms/package.json")), "out");
+export async function scan({ roots, name, git = true, grammarDir: bundled, onProgress }: ScanOptions): Promise<{ map: SystemMap; sources: Map<string, string> }> {
+  await Parser.init(bundled ? { locateFile: () => join(bundled, "tree-sitter.wasm") } : undefined);
+  // Resolved lazily: a CommonJS bundle (the VS Code extension) has no import.meta and passes grammarDir.
+  const grammarDir = bundled ?? join(dirname(createRequire(import.meta.url).resolve("tree-sitter-wasms/package.json")), "out");
 
   const files: ScanInput["files"] = [];
   const configs: ScanInput["configs"] = [];

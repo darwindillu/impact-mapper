@@ -13,7 +13,9 @@
     "test": "tsx --test tests/*.test.ts",
     "prepublishOnly": "npm run build:cli",
     "predev": "node scripts/copy-grammars.mjs",
-    "prebuild": "node scripts/copy-grammars.mjs"
+    "prebuild": "node scripts/copy-grammars.mjs",
+    "build:vscode": "cd vscode && node build.mjs",
+    "eval": "tsx scripts/eval.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
@@ -28,6 +30,7 @@
     "@types/node": "^22.10.2",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
+    "@types/vscode": "^1.90.0",
     "@vitejs/plugin-react": "^4.4.1",
     "esbuild": "^0.25.12",
     "eslint": "^9.25.0",
