@@ -45,7 +45,10 @@ const STOP = new Set(
   ensure support supports like etc e g ie able value values item items data record records thing things
   index src app lib libs utils util helper helpers component components service services controller
   controllers model models test tests spec ts tsx js jsx py java go cs php rb main api module modules
-  default common core base type types interface impl handler handlers route routes`.split(/\s+/),
+  default common core base type types interface impl handler handlers route routes
+  who what which where when why how has have had see sees seen another other there here does did done been being
+  even though both either while after before since because during without within same instead already still yet
+  observe observed expected actual behavior behaviour step steps reproduce summary bug issue error`.split(/\s+/),
 );
 
 export function stem(word: string): string {
@@ -55,6 +58,10 @@ export function stem(word: string): string {
   else if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) w = w.slice(0, -1);
   if (w.length > 5 && w.endsWith("ing")) w = w.slice(0, -3);
   else if (w.length > 4 && w.endsWith("ed")) w = w.slice(0, -2);
+  // "share"/"sharing" -> "shar", "save"/"saving" -> "sav": a final e is dropped
+  // so both forms meet. "running" -> "run".
+  if (w.length > 3 && w.endsWith("e")) w = w.slice(0, -1);
+  if (w.length > 3 && /([bdgmnprt])\1$/.test(w)) w = w.slice(0, -1);
   return w;
 }
 
@@ -97,7 +104,7 @@ const GENERIC_NAMES =
   /^(index|__init__|mod|main|models?|views?|urls|routes?|routers?|handlers?|controllers?|services?|serializers?|schemas?|types|admin|apps|forms|signals|renderers|backends|utils|helpers|api|repository|store|actions|reducers?)$/i;
 
 // The file's own name says most about it; its folders a little less.
-const FIELD_WEIGHT = { name: 5, folder: 2, table: 3, symbol: 2, route: 2, event: 2, card: 1 };
+const FIELD_WEIGHT = { name: 5, folder: 2, table: 3, symbol: 2, route: 2, event: 2, text: 1.5, card: 1 };
 
 function indexFile(file: FileNode): Indexed {
   const weights = new Map<string, number>();
@@ -122,19 +129,43 @@ function indexFile(file: FileNode): Indexed {
   for (const r of file.routes) add(r.path.replace(/:p/g, ""), FIELD_WEIGHT.route);
   for (const t of file.tables) add(t, FIELD_WEIGHT.table);
   for (const e of file.events) add(e.name, FIELD_WEIGHT.event);
+  for (const t of file.texts ?? []) add(t, FIELD_WEIGHT.text);
   if (file.card) add(file.card, FIELD_WEIGHT.card);
   return { file, weights, counts };
+}
+
+/**
+ * UI text or a message the requirement quotes or pastes ("Assignee is
+ * required"): the strongest sign of which file shows it.
+ */
+function phraseHits(file: FileNode, requirement: string, quoted: string[]): number {
+  if (!file.texts?.length) return 0;
+  let hits = 0;
+  for (const raw of file.texts) {
+    const t = raw.toLowerCase().replace(/[.!…]+$/, "");
+    const longEnough = t.length >= 12 && t.split(" ").length >= 3;
+    if ((longEnough && requirement.includes(t)) || quoted.some((q) => t.includes(q) || (q.length >= 12 && q.includes(t) && longEnough))) hits++;
+    if (hits >= 2) break;
+  }
+  return hits;
 }
 
 export interface AnalyzeOptions {
   maxSeeds?: number;
   maxNodes?: number;
   includeTests?: boolean;
+  /** Related words the codebase may use instead (from synonym expansion); they count less than the requirement's own. */
+  extraTerms?: string[];
 }
+
+const EXTRA_WEIGHT = 0.6;
 
 export function analyze(map: SystemMap, requirement: string, opts: AnalyzeOptions = {}): ImpactResult {
   const { maxSeeds = 8, maxNodes = 45 } = opts;
-  const reqTokens = [...new Set(tokenize(requirement))];
+  const ownTokens = new Set(tokenize(requirement));
+  const extra = new Set((opts.extraTerms ?? []).flatMap(tokenize).filter((t) => !ownTokens.has(t)));
+  const reqTokens = [...ownTokens, ...extra];
+  const termWeight = (t: string) => (extra.has(t) ? EXTRA_WEIGHT : 1);
   const files = map.files.map(indexFile);
   const byId = new Map(map.files.map((f) => [f.id, f]));
 
@@ -147,9 +178,19 @@ export function analyze(map: SystemMap, requirement: string, opts: AnalyzeOption
   for (const f of files) {
     const matched = reqTokens.filter((t) => f.weights.has(t));
     if (!matched.length) continue;
-    const score = matched.reduce((s, t) => s + f.weights.get(t)! * idf(t) ** 1.5 * (1 + Math.log(f.counts.get(t)!)), 0);
+    const score = matched.reduce((s, t) => s + termWeight(t) * f.weights.get(t)! * idf(t) ** 1.5 * (1 + Math.log(f.counts.get(t)!)), 0);
     // Several different words beat one word repeated across fields.
     relevance.set(f.file.id, { matched, score: score * (1 + 0.2 * (matched.length - 1)) });
+  }
+  // A quoted or pasted message outranks word overlap.
+  const lowerReq = requirement.toLowerCase().replace(/\s+/g, " ");
+  const quoted = [...requirement.matchAll(/["“”‘’']([^"“”‘’']{6,140})["“”‘’']/g)].map((m) => m[1].toLowerCase().trim());
+  const wordTop = Math.max(0, ...[...relevance.values()].map((r) => r.score));
+  for (const f of files) {
+    const hits = phraseHits(f.file, lowerReq, quoted);
+    if (!hits) continue;
+    const r = relevance.get(f.file.id) ?? { score: 0, matched: [] };
+    relevance.set(f.file.id, { score: r.score + hits * 0.8 * (wordTop || 1), matched: [...r.matched, "quoted text"] });
   }
 
   // Empty package markers (__init__.py, index.js re-exports) are not where a change goes.
@@ -231,7 +272,10 @@ export function analyze(map: SystemMap, requirement: string, opts: AnalyzeOption
         if (to === cur.id) continue;
         const existing = out.get(to);
         if (existing?.relation === "direct") continue;
-        const decay = e.type === "import" ? 0.55 : 0.7; // cross-boundary links are rarer and more telling
+        // Cross-boundary links are rarer and more telling; an import of a
+        // function the requirement names ("optionalEmail") is as good as one.
+        const namesMatch = e.type === "import" && !!e.label && tokenize(e.label).some((t) => reqTokens.includes(t));
+        const decay = e.type === "import" && !namesMatch ? 0.55 : 0.7;
         const reach = cur.score * decay * e.confidence;
         if ((best.get(to) ?? 0) >= reach) continue;
         best.set(to, reach);

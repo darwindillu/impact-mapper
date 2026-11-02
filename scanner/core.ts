@@ -74,7 +74,7 @@ export async function scanSources(input: ScanInput): Promise<SystemMap> {
       tree.delete();
     } catch {
       // A file that can't be read or parsed is still a node; it just has no facts.
-      facts.set(src.id, { imports: [], namespaces: [], symbols: [], routes: [], tables: [], events: [], lang: src.lang, loc: text.split("\n").length });
+      facts.set(src.id, { imports: [], importNames: {}, texts: [], namespaces: [], symbols: [], routes: [], tables: [], events: [], lang: src.lang, loc: text.split("\n").length });
     }
     input.onProgress?.(++done, input.files.length);
   }
@@ -105,7 +105,9 @@ export async function scanSources(input: ScanInput): Promise<SystemMap> {
 
   for (const [id, f] of facts) {
     for (const spec of f.imports) {
-      for (const to of resolver.resolve(id, spec, f.lang)) addEdge({ from: id, to, type: "import", confidence: 1 });
+      // The label lists the names imported, so a match on a function name can follow it.
+      const names = f.importNames[spec]?.slice(0, 6).join(", ");
+      for (const to of resolver.resolve(id, spec, f.lang)) addEdge({ from: id, to, type: "import", confidence: 1, ...(names ? { label: names } : {}) });
     }
   }
 
@@ -181,6 +183,7 @@ export async function scanSources(input: ScanInput): Promise<SystemMap> {
     routes: f.routes,
     tables: f.tables,
     events: f.events,
+    ...(f.texts.length ? { texts: f.texts } : {}),
   }));
   const languages: Record<string, number> = {};
   for (const f of files) languages[f.lang] = (languages[f.lang] ?? 0) + 1;

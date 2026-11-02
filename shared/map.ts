@@ -39,6 +39,8 @@ export interface FileNode {
   routes: RouteRef[];
   tables: string[];
   events: EventRef[];
+  /** UI text and messages in the file ("Assignee is required"), for matching tickets that quote them. */
+  texts?: string[];
   /** Optional one-line AI summary, written by `scan --cards`. */
   card?: string;
 }

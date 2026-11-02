@@ -10,6 +10,10 @@ type Node = Parser.SyntaxNode;
 
 export interface FileFacts {
   imports: string[];
+  /** For JS/TS: the names each import specifier brings in. */
+  importNames: Record<string, string[]>;
+  /** UI text and messages found in string literals and JSX. */
+  texts: string[];
   /** Namespace or package the file declares (C#, PHP, Java, Go). */
   namespaces: string[];
   symbols: string[];
@@ -207,12 +211,40 @@ function namespaceOf(node: Node, lang: string): string | undefined {
   return undefined;
 }
 
+/** Names a JS/TS import statement brings in: import { a, b as c } from "x" gives a, b. */
+function importedNames(node: Node): string[] {
+  if (node.type !== "import_statement") return [];
+  const names = node.descendantsOfType("import_specifier").map((s) => s.childForFieldName("name")?.text ?? s.text);
+  const clause = node.namedChildren.find((c) => c.type === "import_clause");
+  const def = clause?.namedChildren.find((c) => c.type === "identifier");
+  return def ? [def.text, ...names] : names;
+}
+
+// UI text and messages ("Assignee is required", "Share with workspace"):
+// tickets quote them, and file names rarely contain them.
+const NATURAL_TEXT = /[a-z]{2,}[\s,.:;!?'’-]+[a-z]{2,}/i;
+const CODE_LIKE = /[{}<>=;`]|^\s*[./#@$]|^[\w.-]+\.[a-z]{2,4}$|^[\w-]+(\s[\w-]+)?$/;
+const MAX_TEXTS = 80;
+
 export function extractFacts(tree: Parser.Tree, lang: string): FileFacts {
   const imports: string[] = [];
+  const importNames: Record<string, string[]> = {};
   const namespaces: string[] = [];
   const symbols = new Set<string>();
   const tables = new Set<string>();
   const events: EventRef[] = [];
+  const texts = new Set<string>();
+  const addText = (raw: string) => {
+    const s = raw.replace(/\$\{\}/g, "…").replace(/\s+/g, " ").trim();
+    // Two-word labels like "Save changes" are kept; single words are names, not text.
+    if (texts.size >= MAX_TEXTS || s.length < 6 || s.length > 160 || !/\s/.test(s) || !NATURAL_TEXT.test(s)) return;
+    if (CODE_LIKE.test(s) && !/\s\S+\s/.test(s)) return;
+    if (/[{}<>=;`]/.test(s)) return;
+    // Tailwind and CSS class lists: "flex items-center gap-2", "text-sm text-muted-foreground".
+    const words = s.split(" ");
+    if (words.every((w) => /^[a-z0-9@:[\]/.%!-]+$/.test(w)) && words.some((w) => /[-:[]/.test(w))) return;
+    texts.add(s);
+  };
   // Routes are collected with their class so a class-level prefix
   // (@Controller("articles"), @RequestMapping, [Route]) can be applied after.
   const pending: { route: string; method?: string; role: RouteRef["role"]; cls?: Node }[] = [];
@@ -221,6 +253,7 @@ export function extractFacts(tree: Parser.Tree, lang: string): FileFacts {
   const onString = (node: Node) => {
     const value = stringValue(node).replace(/\$\{[^}]*\}/g, "${}");
     if (!value || value.length > 300) return;
+    if (!SQL.test(value)) addText(value);
 
     // Find what the string is an argument to: a call, or a decorator/annotation.
     let context: Node | undefined;
@@ -323,7 +356,13 @@ export function extractFacts(tree: Parser.Tree, lang: string): FileFacts {
   };
 
   const onNode = (node: Node) => {
-    imports.push(...importsOf(node, lang));
+    const specs = importsOf(node, lang);
+    imports.push(...specs);
+    if (specs.length === 1 && (lang === "typescript" || lang === "tsx" || lang === "javascript")) {
+      const names = importedNames(node);
+      if (names.length) importNames[specs[0]] = [...(importNames[specs[0]] ?? []), ...names];
+    }
+    if (node.type === "jsx_text") addText(node.text);
     const ns = namespaceOf(node, lang);
     if (ns) namespaces.push(ns);
 
@@ -411,6 +450,8 @@ export function extractFacts(tree: Parser.Tree, lang: string): FileFacts {
     const seen = new Set<string>();
     return {
       imports: [...new Set(imports)].filter(Boolean),
+      importNames,
+      texts: [...texts],
       namespaces: [...new Set(namespaces)],
       symbols: [...symbols].slice(0, 80),
       routes: [...routes.values()].slice(0, 120),
