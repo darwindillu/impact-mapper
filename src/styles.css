@@ -750,3 +750,109 @@ figcaption {
   flex: 1 1 200px;
   accent-color: var(--accent);
 }
+
+.mode-switch {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 2px;
+  margin-bottom: 8px;
+}
+
+.mode-switch button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.mode-switch button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.grow {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.notice {
+  color: var(--text);
+  font-size: 0.9rem;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.terms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.term {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  color: var(--text);
+}
+
+.frd {
+  margin-top: 0;
+}
+
+.frd-text {
+  margin-top: 12px;
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.settings fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 12px 0;
+  padding: 10px 12px;
+}
+
+.settings legend {
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.setting {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.setting span {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.settings {
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+}

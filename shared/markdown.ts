@@ -1,16 +1,27 @@
-import type { Analysis } from "../../shared/ai.ts";
-import { describeStep, type ImpactResult } from "../../shared/analyze.ts";
-import type { Insights } from "../../shared/insights.ts";
+import type { Analysis } from "./ai.ts";
+import { describeStep, type ImpactResult } from "./analyze.ts";
+import type { Insights } from "./insights.ts";
 
+/** `requirement` is the feature text, or in diff mode the changed file paths, one per line. */
 export function toMarkdown(requirement: string, mapName: string, result: ImpactResult, insights: Insights, ai?: Analysis): string {
-  const out: string[] = [`# Impact map`, "", `**Codebase:** ${mapName}`, "", "**Requirement:**", "", `> ${requirement.replace(/\n/g, "\n> ")}`, ""];
+  const diff = result.unmatched !== undefined;
+  const changedCount = result.nodes.filter((n) => n.relation === "direct").length;
+  const out: string[] = diff
+    ? [
+        `# Impact of ${changedCount} changed file${changedCount === 1 ? "" : "s"}`,
+        "",
+        `**Codebase:** ${mapName}`,
+        "",
+        ...(result.unmatched!.length ? [`Not in the map (deleted, docs or unsupported): ${result.unmatched!.map((p) => `\`${p}\``).join(", ")}`, ""] : []),
+      ]
+    : [`# Impact map`, "", `**Codebase:** ${mapName}`, "", "**Requirement:**", "", `> ${requirement.replace(/\n/g, "\n> ")}`, ""];
   if (ai) out.push("## Summary", "", ai.summary, "");
 
   out.push("## What it touches", "");
   for (const [area, nodes] of Object.entries(result.byArea)) {
     out.push(`### ${area}`, "");
     for (const n of nodes!) {
-      const why = n.relation === "direct" ? `matches ${n.matched.join(", ")}` : n.path.map(describeStep).join(" → ");
+      const why = n.relation === "direct" ? (diff ? "changed in this diff" : `matches ${n.matched.join(", ")}`) : n.path.map(describeStep).join(" → ");
       const note = ai?.impacts.find((i) => i.file === n.id);
       out.push(`- \`${n.id}\` (${n.relation}${note ? `, ${note.change}, ${note.risk} risk` : ""}): ${note?.why ?? why}`);
     }

@@ -34,6 +34,9 @@
     "scanner/languages.ts",
     "scanner/resolve.ts",
     "scanner/routes.ts",
-    "scanner/paths.ts"
+    "scanner/paths.ts",
+    "shared/markdown.ts",
+    "shared/frd.ts",
+    "shared/vocabulary.ts"
   ]
 }

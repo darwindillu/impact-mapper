@@ -1,39 +1,51 @@
 #!/usr/bin/env node
 // impact-mapper scan <dir...> [-o system-map.json] [--name "My app"] [--cards]
+// impact-mapper diff [--base origin/main] [--map system-map.json]
 //
-// Writes the structure of the code (files, routes, data, events, links) to a
-// JSON file. Source code is read locally and never leaves the machine, except
-// with --cards, which sends the most connected files to your own AI key for a
-// one-line summary each.
+// `scan` writes the structure of the code (files, routes, data, events,
+// links) to a JSON file. Source code is read locally and never leaves the
+// machine, except with --cards, which sends the most connected files to your
+// own AI key for a one-line summary each.
+// `diff` reports what the files a branch changed could break.
 
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { scan } from "./build.ts";
 import { addCards } from "./cards.ts";
+import { runDiff } from "./diff.ts";
 
 function usage(): never {
-  console.log(`Usage: impact-mapper scan <dir> [more dirs...] [options]
+  console.log(`Usage:
+  impact-mapper scan <dir> [more dirs...] [options]
+  impact-mapper diff [options]
 
-Options:
+scan options:
   -o, --out <file>   Output file (default: system-map.json)
   --name <name>      Name shown in the app (default: folder names)
   --cards            Add one-line AI summaries for the most connected files.
                      Needs ANTHROPIC_API_KEY.
   --cards-limit <n>  How many files to summarize (default: 120)
-  --no-git           Skip the 12-month change history from git`);
+  --no-git           Skip the 12-month change history from git
+
+diff options:
+  --repo <dir>       Repository to diff (default: current folder)
+  --base <ref>       Compare the branch with this ref, e.g. origin/main.
+                     Without it, uncommitted changes are used.
+  --files <a,b,...>  Use these changed files instead of asking git
+  --map <file>       Use a saved map instead of scanning the repository
+  --format md|json   Output format (default: md)
+  -o, --out <file>   Write to a file instead of the terminal`);
   process.exit(1);
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  if (args[0] !== "scan") usage();
+async function scanCommand(args: string[]) {
   const roots: string[] = [];
   let out = "system-map.json";
   let name: string | undefined;
   let cards = false;
   let cardsLimit = 120;
   let git = true;
-  for (let i = 1; i < args.length; i++) {
+  for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "-o" || a === "--out") out = args[++i];
     else if (a === "--name") name = args[++i];
@@ -69,6 +81,33 @@ async function main() {
     `links: ${byType.import ?? 0} imports, ${byType.http ?? 0} HTTP, ${byType.data ?? 0} data, ${byType.event ?? 0} event`,
   );
   console.log(`wrote ${out} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+}
+
+async function diffCommand(args: string[]) {
+  let repo = ".";
+  let base: string | undefined;
+  let files: string[] | undefined;
+  let mapFile: string | undefined;
+  let format: "md" | "json" = "md";
+  let out: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--repo") repo = args[++i];
+    else if (a === "--base") base = args[++i];
+    else if (a === "--files") files = args[++i].split(",").map((s) => s.trim()).filter(Boolean);
+    else if (a === "--map") mapFile = args[++i];
+    else if (a === "--format") format = args[++i] === "json" ? "json" : "md";
+    else if (a === "-o" || a === "--out") out = args[++i];
+    else usage();
+  }
+  await runDiff({ repo, base, files, mapFile, format, out });
+}
+
+async function main() {
+  const [command, ...rest] = process.argv.slice(2);
+  if (command === "scan") await scanCommand(rest);
+  else if (command === "diff") await diffCommand(rest);
+  else usage();
 }
 
 main().catch((e) => {

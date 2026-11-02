@@ -1,36 +1,53 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Analysis } from "../shared/ai.ts";
-import { buildRequest } from "../shared/request.ts";
-import { analyze, describeStep, type ImpactNode, type ImpactResult } from "../shared/analyze.ts";
-import { buildInsights, hotFiles } from "../shared/insights.ts";
+import { analyze, type ImpactResult } from "../shared/analyze.ts";
+import { buildFrd } from "../shared/frd.ts";
+import { buildInsights, hotFiles, type Insights } from "../shared/insights.ts";
 import { MAP_VERSION, type SystemMap } from "../shared/map.ts";
+import { toMarkdown } from "../shared/markdown.ts";
+import { buildRequest } from "../shared/request.ts";
+import { vocabulary } from "../shared/vocabulary.ts";
+import { FrdPanel } from "./components/FrdPanel.tsx";
 import { ImpactGraph } from "./components/ImpactGraph.tsx";
+import { NodeDetails } from "./components/NodeDetails.tsx";
+import { Settings } from "./components/Settings.tsx";
+import { fetchTicket, postToTicket, requestExplanation, requestFrd, requestTerms } from "./lib/api.ts";
 import { AREA_ORDER, shortName } from "./lib/names.ts";
-import { getUserKey, requestExplanation, setUserKey } from "./lib/api.ts";
-import { toMarkdown } from "./lib/markdown.ts";
+import { readSharedView, shareUrl, type SharedView } from "./lib/share.ts";
 import { SAMPLES } from "./samples.ts";
 import { canPickDirectory, fromFileList, pickDirectory, scanInWorker } from "./scan/folder.ts";
 import type { ScanRequest } from "./scan/protocol.ts";
 
-type Source = { kind: "sample"; id: string } | { kind: "upload"; name: string } | { kind: "folder"; name: string };
-type ScanState =
-  | { status: "idle" }
-  | { status: "reading"; found: number }
-  | { status: "parsing"; done: number; total: number };
+type Source =
+  | { kind: "sample"; id: string }
+  | { kind: "upload"; name: string }
+  | { kind: "folder"; name: string }
+  | { kind: "shared"; name: string };
+type ScanState = { status: "idle" } | { status: "reading"; found: number } | { status: "parsing"; done: number; total: number };
 type Tab = "gaps" | "edges" | "tests" | "risks";
+type Mode = "feature" | "diff";
 
 function isSystemMap(v: unknown): v is SystemMap {
   const m = v as SystemMap;
   return !!m && m.version === MAP_VERSION && Array.isArray(m.files) && Array.isArray(m.edges);
 }
 
+const errorText = (e: unknown, fallback = "The request failed.") => (e instanceof Error ? e.message : fallback);
+
 export default function App() {
   const [source, setSource] = useState<Source>({ kind: "sample", id: SAMPLES[0].id });
   const [map, setMap] = useState<SystemMap>();
   const [mapError, setMapError] = useState<string>();
   const [requirement, setRequirement] = useState(SAMPLES[0].examples[0]);
+  const [mode, setMode] = useState<Mode>("feature");
+  const [changedText, setChangedText] = useState("");
+  const [related, setRelated] = useState(false);
+  // Related words from Claude for the last mapped requirement.
+  const [extraTerms, setExtraTerms] = useState<string[]>([]);
+  const [busy, setBusy] = useState<"" | "terms" | "ticket" | "post" | "share">("");
+  const [notice, setNotice] = useState<{ text: string; error?: boolean }>();
   const [result, setResult] = useState<ImpactResult>();
-  const [analyzedFor, setAnalyzedFor] = useState("");
+  const [analyzed, setAnalyzed] = useState<{ text: string; mode: Mode }>({ text: "", mode: "feature" });
   const [selected, setSelected] = useState<string>();
   const [tab, setTab] = useState<Tab>("gaps");
   const [ai, setAi] = useState<Analysis>();
@@ -38,7 +55,13 @@ export default function App() {
   const [aiError, setAiError] = useState("");
   const [copied, setCopied] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [frdOpen, setFrdOpen] = useState(false);
   const [scan, setScan] = useState<ScanState>({ status: "idle" });
+  const [ticketInput, setTicketInput] = useState("");
+  const [ticketRef, setTicketRef] = useState("");
+  // A shared link's snapshot carries its own checklist; there's no full map to rebuild it from.
+  const [sharedInsights, setSharedInsights] = useState<Insights>();
+  const [pendingRun, setPendingRun] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
 
@@ -66,7 +89,53 @@ export default function App() {
     };
   }, [sample]);
 
-  const insights = useMemo(() => (map && result ? buildInsights(map, result) : undefined), [map, result]);
+  const runWith = useCallback(
+    (m: SystemMap, runMode: Mode, text: string, terms: string[]) => {
+      const r = runMode === "feature" ? analyze(m, text, { extraTerms: terms }) : analyze(m, "", { changedFiles: text.split(/\r?\n|,/) });
+      setResult(r);
+      setAnalyzed({ text, mode: runMode });
+      setSelected(r.nodes[0]?.id);
+      setAi(undefined);
+      setAiState("idle");
+      setSharedInsights(undefined);
+      setFrdOpen(false);
+      setTab("gaps");
+    },
+    [],
+  );
+
+  // Open a shared link: re-run a sample, or show a snapshot.
+  useEffect(() => {
+    readSharedView(location.hash).then((view?: SharedView) => {
+      if (!view) return;
+      setMode(view.mode);
+      if (view.mode === "feature") setRequirement(view.text);
+      else setChangedText(view.text);
+      if (view.sample && SAMPLES.some((s) => s.id === view.sample)) {
+        setSource({ kind: "sample", id: view.sample });
+        setPendingRun(true);
+      } else if (view.snapshot) {
+        const files = view.snapshot.files.map((f) => ({ ...f, lang: "", loc: 0, events: [] }));
+        setMap({ version: MAP_VERSION, name: view.mapName, scannedAt: "", roots: [], languages: {}, files, resources: [], edges: [] });
+        setSource({ kind: "shared", name: view.mapName });
+        setResult(view.snapshot.result);
+        setAnalyzed({ text: view.text, mode: view.mode });
+        setSelected(view.snapshot.result.nodes[0]?.id);
+        setSharedInsights(view.snapshot.insights);
+        setAi(view.snapshot.ai);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (pendingRun && map) {
+      setPendingRun(false);
+      runWith(map, mode, mode === "feature" ? requirement : changedText, []);
+    }
+  }, [pendingRun, map, mode, requirement, changedText, runWith]);
+
+  const computedInsights = useMemo(() => (map && result && source.kind !== "shared" ? buildInsights(map, result) : undefined), [map, result, source]);
+  const insights = sharedInsights ?? computedInsights;
   const hot = useMemo(() => new Set(map && result ? hotFiles(map, result).map((n) => n.id) : []), [map, result]);
   const byId = useMemo(() => new Map((map?.files ?? []).map((f) => [f.id, f])), [map]);
   const linkCounts = useMemo(() => {
@@ -79,17 +148,29 @@ export default function App() {
     setResult(undefined);
     setAi(undefined);
     setAiState("idle");
+    setSharedInsights(undefined);
+    setFrdOpen(false);
+    setExtraTerms([]);
+    history.replaceState(null, "", location.pathname);
   };
 
-  const run = () => {
-    if (!map || !requirement.trim()) return;
-    const r = analyze(map, requirement);
-    setResult(r);
-    setAnalyzedFor(requirement);
-    setSelected(r.nodes[0]?.id);
-    setAi(undefined);
-    setAiState("idle");
-    setTab("gaps");
+  const run = async () => {
+    const text = mode === "feature" ? requirement : changedText;
+    if (!map || !text.trim() || source.kind === "shared") return;
+    setNotice(undefined);
+    let terms: string[] = [];
+    if (mode === "feature" && related) {
+      setBusy("terms");
+      try {
+        terms = await requestTerms(requirement, vocabulary(map));
+      } catch (e) {
+        setNotice({ text: `Related words are unavailable (${errorText(e)}), so only the requirement's own words were used.`, error: true });
+      } finally {
+        setBusy("");
+      }
+    }
+    setExtraTerms(terms);
+    runWith(map, mode, text, terms);
   };
 
   const chooseSample = (id: string) => {
@@ -108,7 +189,7 @@ export default function App() {
       setMapError(undefined);
       reset();
     } catch {
-      setMapError(`${file.name} is not a system map. Create one with: npx impact-mapper scan ./your-repo`);
+      setMapError(`${file.name} is not a system map. Create one with Choose folder, or: impact-mapper scan ./your-repo`);
     }
   };
 
@@ -119,7 +200,7 @@ export default function App() {
       const req = await getRequest();
       if (!req) return; // cancelled
       if (!req.files.length) {
-        setMapError(`No source files found in ${req.name}. Supported: TypeScript, JavaScript, Python, Java, Go, C#, PHP, Ruby.`);
+        setMapError(`No source files found in ${req.name}.`);
         return;
       }
       setScan({ status: "parsing", done: 0, total: req.files.length });
@@ -128,7 +209,7 @@ export default function App() {
       setSource({ kind: "folder", name: req.name });
       reset();
     } catch (e) {
-      setMapError(`The folder could not be scanned: ${e instanceof Error ? e.message : "unknown error"}`);
+      setMapError(`The folder could not be scanned: ${errorText(e, "unknown error")}`);
     } finally {
       setScan({ status: "idle" });
     }
@@ -139,43 +220,116 @@ export default function App() {
     else folderInput.current?.click();
   };
 
-  const saveMap = () => {
-    if (!map) return;
-    const url = URL.createObjectURL(new Blob([JSON.stringify(map)], { type: "application/json" }));
+  const download = (name: string, text: string, type: string) => {
+    const url = URL.createObjectURL(new Blob([text], { type }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${map.name.replace(/[^\w.-]+/g, "-").toLowerCase() || "system"}-map.json`;
+    a.download = name;
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const saveMap = () => map && download(`${map.name.replace(/[^\w.-]+/g, "-").toLowerCase() || "system"}-map.json`, JSON.stringify(map), "application/json");
+
+  // What Claude reads as "the requirement": in diff mode, the changed files.
+  const aiRequirement = analyzed.mode === "feature" ? analyzed.text : `These files changed:\n${analyzed.text}`;
 
   const explain = async () => {
     if (!map || !result) return;
     setAiState("loading");
     setAiError("");
     try {
-      setAi(await requestExplanation(buildRequest(map, analyzedFor, result)));
+      setAi(await requestExplanation(buildRequest(map, aiRequirement, result)));
       setAiState("idle");
     } catch (e) {
       setAiState("error");
-      setAiError(e instanceof Error ? e.message : "The request failed.");
+      setAiError(errorText(e));
     }
   };
 
+  const markdown = () => (map && result && insights ? toMarkdown(analyzed.text, map.name, result, insights, ai) : "");
+
   const copy = async () => {
-    if (!map || !result || !insights) return;
     try {
-      await navigator.clipboard.writeText(toMarkdown(analyzedFor, map.name, result, insights, ai));
+      await navigator.clipboard.writeText(markdown());
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
-      setAiError("The browser blocked copying to the clipboard.");
+      setNotice({ text: "The browser blocked copying to the clipboard.", error: true });
+    }
+  };
+
+  const importTicket = async () => {
+    if (!ticketInput.trim()) return;
+    setBusy("ticket");
+    setNotice(undefined);
+    try {
+      const t = await fetchTicket(ticketInput.trim());
+      setTicketRef(ticketInput.trim());
+      setRequirement(`${t.title}\n\n${t.body}`.trim().slice(0, 4000));
+      if (t.files?.length) {
+        setChangedText(t.files.join("\n"));
+        setMode("diff");
+        setNotice({ text: `Imported pull request "${t.title}" with ${t.files.length} changed files.` });
+      } else {
+        setMode("feature");
+        setNotice({ text: `Imported "${t.title}".` });
+      }
+    } catch (e) {
+      setNotice({ text: errorText(e), error: true });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const postBack = async () => {
+    setBusy("post");
+    try {
+      const where = await postToTicket(ticketRef, markdown());
+      setNotice({ text: `Posted the impact map to ${where}.` });
+    } catch (e) {
+      setNotice({ text: errorText(e), error: true });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const share = async () => {
+    if (!map || !result || !insights) return;
+    setBusy("share");
+    try {
+      const base = { v: 1 as const, mode: analyzed.mode, text: analyzed.text, mapName: map.name };
+      const view: SharedView = sample
+        ? { ...base, sample: sample.id }
+        : {
+            ...base,
+            snapshot: {
+              result,
+              insights,
+              ai,
+              files: result.nodes
+                .map((n) => byId.get(n.id))
+                .filter((f) => !!f)
+                .map((f) => ({ id: f.id, tags: f.tags, symbols: f.symbols.slice(0, 10), routes: f.routes.filter((r) => r.role !== "mentions").slice(0, 6), tables: f.tables, churn: f.churn })),
+            },
+          };
+      const url = await shareUrl(view);
+      await navigator.clipboard.writeText(url);
+      setNotice({
+        text: sample
+          ? "Link copied. It opens this sample with the same input."
+          : "Link copied. It holds this result, including file paths, so share it only with people who may see this codebase's structure.",
+      });
+    } catch (e) {
+      setNotice({ text: `The link could not be created: ${errorText(e)}`, error: true });
+    } finally {
+      setBusy("");
     }
   };
 
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const selectedNode = result?.nodes.find((n) => n.id === selected);
-  const stale = !!result && analyzedFor !== requirement;
+  const stale = !!result && source.kind !== "shared" && (analyzed.mode !== mode || analyzed.text !== (mode === "feature" ? requirement : changedText));
 
   return (
     <div className="app">
@@ -221,6 +375,7 @@ export default function App() {
                 ))}
                 <option value="folder">{source.kind === "folder" ? `Your folder: ${source.name}` : "Choose a folder on this computer…"}</option>
                 <option value="upload">{source.kind === "upload" ? `Your map: ${source.name}` : "Upload a saved map…"}</option>
+                {source.kind === "shared" && <option value="shared">Shared result: {source.name}</option>}
               </select>
               <button className="primary" onClick={chooseFolder} disabled={scan.status !== "idle"}>
                 Choose folder
@@ -266,7 +421,7 @@ export default function App() {
               </div>
             )}
             {mapError && <p className="error">{mapError}</p>}
-            {map && scan.status === "idle" && (
+            {map && scan.status === "idle" && source.kind !== "shared" && (
               <p className="meta">
                 {map.name} · {map.files.length} files ·{" "}
                 {Object.entries(map.languages)
@@ -278,20 +433,61 @@ export default function App() {
                 {linkCounts.event ? `, ${linkCounts.event} event links` : ""}
               </p>
             )}
+            {source.kind === "shared" && (
+              <p className="meta">
+                A shared result for {source.name}. To change it, map the same codebase yourself: choose its folder or upload its map.
+              </p>
+            )}
           </div>
 
           <div className="field">
-            <label htmlFor="req">Feature requirement</label>
+            <label htmlFor="ticket">Import from a ticket (optional)</label>
+            <div className="row">
+              <input
+                id="ticket"
+                className="grow"
+                value={ticketInput}
+                onChange={(e) => setTicketInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && importTicket()}
+                placeholder="GitHub issue or pull request link, Jira link or key, Plane link or key"
+              />
+              <button className="ghost" onClick={importTicket} disabled={busy === "ticket" || !ticketInput.trim()}>
+                {busy === "ticket" ? "Importing…" : "Import"}
+              </button>
+            </div>
+          </div>
+
+          <div className="field">
+            <div className="mode-switch" role="tablist" aria-label="What to map">
+              <button role="tab" aria-selected={mode === "feature"} className={mode === "feature" ? "active" : ""} onClick={() => setMode("feature")}>
+                Feature requirement
+              </button>
+              <button role="tab" aria-selected={mode === "diff"} className={mode === "diff" ? "active" : ""} onClick={() => setMode("diff")}>
+                Changed files
+              </button>
+            </div>
+            <label htmlFor="req" className="sr-only">
+              {mode === "feature" ? "Feature requirement" : "Changed files"}
+            </label>
             <textarea
               id="req"
-              rows={4}
-              value={requirement}
-              maxLength={4000}
-              onChange={(e) => setRequirement(e.target.value)}
+              rows={mode === "feature" ? 4 : 6}
+              value={mode === "feature" ? requirement : changedText}
+              maxLength={mode === "feature" ? 4000 : 100_000}
+              onChange={(e) => (mode === "feature" ? setRequirement(e.target.value) : setChangedText(e.target.value))}
               onKeyDown={(e) => (e.metaKey || e.ctrlKey) && e.key === "Enter" && run()}
-              placeholder="Describe the feature in plain words, the way the ticket says it."
+              placeholder={
+                mode === "feature"
+                  ? "Describe the feature in plain words, the way the ticket says it."
+                  : "Paste the changed file paths, one per line: the output of git diff --name-only, or the file list of a pull request."
+              }
             />
-            {sample && (
+            {mode === "diff" && (
+              <p className="hint">
+                Shows what the changed files could break. From a terminal: <code>git diff --name-only origin/main...HEAD</code>
+              </p>
+            )}
+            {mode === "feature" && sample && (
               <div className="examples">
                 <span>Try:</span>
                 {sample.examples.map((ex) => (
@@ -303,19 +499,50 @@ export default function App() {
             )}
           </div>
           <div className="actions">
-            <button className="primary" onClick={run} disabled={!map}>
-              Map the impact
+            <button className="primary" onClick={run} disabled={!map || busy === "terms" || source.kind === "shared"}>
+              {busy === "terms" ? "Finding related words…" : "Map the impact"}
             </button>
-            {stale && <span className="hint">The requirement changed. Map it again to update the results.</span>}
+            {mode === "feature" && (
+              <label className="check" title="Claude suggests words this codebase uses for the same things, such as 'favorite' for 'bookmark'">
+                <input type="checkbox" checked={related} onChange={(e) => setRelated(e.target.checked)} /> Also search related words (Claude)
+              </label>
+            )}
+            {stale && <span className="hint">The input changed. Map it again to update the results.</span>}
           </div>
+          {extraTerms.length > 0 && result && (
+            <p className="hint terms">
+              Also searched: {extraTerms.map((t) => (
+                <span key={t} className="term">
+                  {t}
+                </span>
+              ))}
+            </p>
+          )}
+          {result?.unmatched?.length ? (
+            <p className="hint">
+              Not in the map: {result.unmatched.slice(0, 5).join(", ")}
+              {result.unmatched.length > 5 ? ` and ${result.unmatched.length - 5} more` : ""}
+            </p>
+          ) : null}
+          {notice && (
+            <p className={notice.error ? "error" : "notice"} role="status">
+              {notice.text}{" "}
+              {notice.error && /Settings/.test(notice.text) && (
+                <button className="link-button" onClick={() => setSettingsOpen(true)}>
+                  Open Settings
+                </button>
+              )}
+            </p>
+          )}
         </section>
 
         {result && result.nodes.length === 0 && (
           <section className="panel empty">
             <h2>Nothing in this codebase matched</h2>
             <p>
-              No file, endpoint or data name shares a word with the requirement ({result.tokens.join(", ") || "no usable words"}). Use the names
-              the product uses: "invoice" rather than "bill", "comment" rather than "reply".
+              {analyzed.mode === "diff"
+                ? "None of the changed files are in this map. Check that the map is of the same repository."
+                : `No file, endpoint, data name or UI text shares a word with the requirement (${result.tokens.join(", ") || "no usable words"}). Use the names the product uses, or tick "Also search related words".`}
             </p>
           </section>
         )}
@@ -324,7 +551,7 @@ export default function App() {
           <>
             <section className="summary">
               <div className="stat">
-                <b>{result.stats.direct}</b> direct matches
+                <b>{result.stats.direct}</b> {analyzed.mode === "diff" ? "changed" : "direct matches"}
               </div>
               <div className="stat down">
                 <b>{result.stats.downstream}</b> downstream, could break
@@ -338,10 +565,29 @@ export default function App() {
                 </div>
               )}
               <div className="spacer" />
+              <button className="ghost" onClick={() => setFrdOpen(true)} disabled={!map}>
+                Draft FRD
+              </button>
+              <button className="ghost" onClick={share} disabled={busy === "share"}>
+                Copy share link
+              </button>
+              {ticketRef && (
+                <button className="ghost" onClick={postBack} disabled={busy === "post"} title={`Post the impact map as a comment on ${ticketRef}`}>
+                  {busy === "post" ? "Posting…" : "Post to ticket"}
+                </button>
+              )}
               <button className="ghost" onClick={copy}>
                 {copied ? "Copied" : "Copy as Markdown"}
               </button>
             </section>
+
+            {frdOpen && map && (
+              <FrdPanel
+                draft={buildFrd(map, aiRequirement, result, insights)}
+                onAskClaude={async () => (await requestFrd(buildRequest(map, aiRequirement, result))).markdown}
+                onClose={() => setFrdOpen(false)}
+              />
+            )}
 
             <div className="results">
               <section className="panel graph-panel">
@@ -395,9 +641,11 @@ export default function App() {
                       ? "Explained by Claude from the graph above. Every file it cites is in the map."
                       : "Built from the code graph. Claude can explain it in the context of the requirement."}
                   </span>
-                  <button className="primary" onClick={explain} disabled={aiState === "loading"}>
-                    {aiState === "loading" ? "Asking Claude…" : ai ? "Ask again" : "Explain with Claude"}
-                  </button>
+                  {source.kind !== "shared" && (
+                    <button className="primary" onClick={explain} disabled={aiState === "loading"}>
+                      {aiState === "loading" ? "Asking Claude…" : ai ? "Ask again" : "Explain with Claude"}
+                    </button>
+                  )}
                 </div>
               </div>
               {aiState === "error" && (
@@ -457,21 +705,21 @@ export default function App() {
           <h2>How it works</h2>
           <ol>
             <li>
-              <b>Scan.</b> <b>Choose folder</b> parses every file in your browser with tree-sitter (TypeScript, JavaScript, Python, Java, Go, C#,
-              PHP, Ruby) and records imports, definitions, routes served and called, data stores and events. Nothing is uploaded: the files are read
-              on your computer, and only their structure is kept. The same scan runs from the command line for CI or very large repos.
+              <b>Scan.</b> <b>Choose folder</b> parses every file in your browser with tree-sitter (TypeScript, JavaScript, Python, Java, Kotlin,
+              Scala, Go, Rust, C#, PHP, Ruby, Vue and Svelte) and records imports, definitions, routes, data, fields, UI text and events. Nothing is
+              uploaded: only the structure is kept. The command-line scan adds 12 months of git history.
             </li>
             <li>
               <b>Link.</b> Imports connect files inside a codebase. Matching route strings connect a screen's API call to the controller that serves
-              it, across languages. Shared table and event names connect the rest.
+              it, across languages, including prefixes set in another file. Shared tables, fields and events connect the rest.
             </li>
             <li>
-              <b>Map.</b> The requirement's words find the files it is about. The graph then shows what depends on them (downstream, could break)
-              and what they depend on (upstream).
+              <b>Map.</b> A requirement's words and quoted UI text find the files it is about; a list of changed files can be the starting point
+              instead. The graph then shows what depends on them (downstream, could break) and what they depend on (upstream).
             </li>
             <li>
-              <b>Explain.</b> Optionally, Claude turns the result into gap questions, edge cases, tests and risks. It sees only the structure, and
-              every file it cites must be one the graph found.
+              <b>Explain.</b> Optionally, Claude suggests the codebase's own words for the requirement, explains the result, and drafts an FRD. It
+              sees only the structure, and every file it cites must be one the graph found.
             </li>
           </ol>
         </section>
@@ -490,90 +738,5 @@ function Items({ items }: { items: string[] }) {
         <li key={t}>{t}</li>
       ))}
     </ul>
-  );
-}
-
-function NodeDetails({ node, file, ai }: { node: ImpactNode; file?: SystemMap["files"][number]; ai?: Analysis }) {
-  const note = ai?.impacts.find((i) => i.file === node.id);
-  const routes = file?.routes.filter((r) => r.role !== "mentions") ?? [];
-  return (
-    <aside className="details" aria-live="polite">
-      <h3 title={node.id}>{shortName(node.id)}</h3>
-      <p className="path">{node.id}</p>
-      <p>
-        <span className={`badge ${node.relation}`}>{node.relation}</span> {node.area}
-        {node.hub && <span className="badge hub">shared by much of the code</span>}
-      </p>
-      {note && (
-        <p className={`note ${note.risk}`}>
-          <b>
-            {note.change}, {note.risk} risk.
-          </b>{" "}
-          {note.why}
-        </p>
-      )}
-      {node.relation === "direct" ? (
-        <p>Matches the requirement on: {node.matched.join(", ")}</p>
-      ) : (
-        <ol className="chain">
-          {node.path.map((s, i) => (
-            <li key={i}>{describeStep(s)}</li>
-          ))}
-        </ol>
-      )}
-      {routes.length > 0 && (
-        <p className="small">
-          {routes
-            .slice(0, 6)
-            .map((r) => `${r.role} ${r.method ?? ""} ${r.path}`.replace(/\s+/g, " "))
-            .join(" · ")}
-        </p>
-      )}
-      {file?.symbols.length ? <p className="small">Defines: {file.symbols.slice(0, 10).join(", ")}</p> : null}
-      {file?.card && <p className="small">{file.card}</p>}
-      {file?.churn && (
-        <p className="small">
-          Changed in {file.churn.commits} commit{file.churn.commits === 1 ? "" : "s"} in the last 12 months, {file.churn.fixes} of them fixes.
-        </p>
-      )}
-    </aside>
-  );
-}
-
-function Settings({ onClose }: { onClose: () => void }) {
-  const [key, setKey] = useState(getUserKey());
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const d = dialog.current;
-    if (!d) return;
-    if (!d.open) d.showModal(); // StrictMode runs this twice in dev
-    // Covers Cancel, Save and the Escape key alike.
-    d.addEventListener("close", onClose);
-    return () => d.removeEventListener("close", onClose);
-  }, [onClose]);
-  return (
-    <dialog ref={dialog} className="settings">
-      <h2>Settings</h2>
-      <label htmlFor="key">Your Anthropic API key (optional)</label>
-      <input id="key" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-ant-…" autoComplete="off" />
-      <p className="hint">
-        Used only for "Explain with Claude". It is sent with each request and kept in this browser tab until you close it. Without one, the
-        site's free demo allows a few explanations a day.
-      </p>
-      <div className="row end">
-        <button className="ghost" onClick={() => dialog.current?.close()}>
-          Cancel
-        </button>
-        <button
-          className="primary"
-          onClick={() => {
-            setUserKey(key.trim());
-            dialog.current?.close();
-          }}
-        >
-          Save
-        </button>
-      </div>
-    </dialog>
   );
 }

@@ -32,6 +32,8 @@ export interface ImpactResult {
   tokens: string[];
   nodes: ImpactNode[];
   byArea: Partial<Record<Area, ImpactNode[]>>;
+  /** Diff mode: changed paths that are not in the map (deleted files, docs, unsupported languages). */
+  unmatched?: string[];
   /** `weak`: files linked to the change but too loosely to list (a screen that only shares the API client). */
   stats: { direct: number; downstream: number; upstream: number; files: number; weak: number };
 }
@@ -156,6 +158,25 @@ export interface AnalyzeOptions {
   includeTests?: boolean;
   /** Related words the codebase may use instead (from synonym expansion); they count less than the requirement's own. */
   extraTerms?: string[];
+  /**
+   * Diff mode: start from these changed files (paths as git prints them)
+   * instead of from the requirement's words.
+   */
+  changedFiles?: string[];
+}
+
+/** Map ids for paths as `git diff --name-only` prints them, which may be relative to a different root. */
+export function matchPaths(map: SystemMap, paths: string[]): { ids: string[]; unmatched: string[] } {
+  const ids: string[] = [];
+  const unmatched: string[] = [];
+  for (const raw of paths) {
+    const p = raw.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+    if (!p) continue;
+    const hit = map.files.find((f) => f.id === p) ?? map.files.find((f) => f.id.endsWith(`/${p}`) || p.endsWith(`/${f.id}`));
+    if (hit) ids.push(hit.id);
+    else unmatched.push(p);
+  }
+  return { ids: [...new Set(ids)], unmatched };
 }
 
 const EXTRA_WEIGHT = 0.6;
@@ -215,9 +236,15 @@ export function analyze(map: SystemMap, requirement: string, opts: AnalyzeOption
       seedSet.add(s);
     }
   }
-  const seeds = [...seedSet];
+  // In diff mode the changed files are the starting points, and every
+  // dependent counts fully: there are no words to weigh them by.
+  const changed = opts.changedFiles?.length ? matchPaths(map, opts.changedFiles) : undefined;
+  const indexed = new Map(files.map((f) => [f.file.id, f]));
+  const seeds = changed
+    ? changed.ids.map((id) => ({ f: indexed.get(id)!, matched: ["changed"], score: top || 1 }))
+    : [...seedSet];
   // How much a file is about the requirement itself, 0..1.
-  const ownRelevance = (id: string) => Math.min(1, (relevance.get(id)?.score ?? 0) / (top || 1));
+  const ownRelevance = (id: string) => (changed ? 1 : Math.min(1, (relevance.get(id)?.score ?? 0) / (top || 1)));
 
   const out = new Map<string, ImpactNode>();
   const areaFor = (id: string): Area => {
@@ -271,7 +298,7 @@ export function analyze(map: SystemMap, requirement: string, opts: AnalyzeOption
       for (const { e, to } of next) {
         if (to === cur.id) continue;
         // Field links are many; follow one only when the requirement names the field.
-        if (e.type === "data" && e.label?.startsWith("field ") && !tokenize(e.label.slice(6)).some((t) => reqTokens.includes(t))) continue;
+        if (!changed && e.type === "data" && e.label?.startsWith("field ") && !tokenize(e.label.slice(6)).some((t) => reqTokens.includes(t))) continue;
         const existing = out.get(to);
         if (existing?.relation === "direct") continue;
         // Cross-boundary links are rarer and more telling; an import of a
@@ -326,6 +353,7 @@ export function analyze(map: SystemMap, requirement: string, opts: AnalyzeOption
     tokens: reqTokens,
     nodes: kept,
     byArea,
+    ...(changed ? { unmatched: changed.unmatched } : {}),
     stats: {
       direct: kept.filter((n) => n.relation === "direct").length,
       downstream: kept.filter((n) => n.relation === "downstream").length,
