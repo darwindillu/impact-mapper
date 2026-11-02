@@ -54,12 +54,12 @@ export function Help({ onClose }: { onClose: () => void }) {
 
       <h3>Reading the result</h3>
       <dl className="help-terms">
-        <dt>Direct</dt>
-        <dd>What the requirement is about, or the files the branch changed.</dd>
-        <dt>Downstream</dt>
-        <dd>Depends on a direct file (imports it, calls its API, uses its data). A change can break it.</dd>
-        <dt>Upstream</dt>
-        <dd>A direct file depends on it. It usually stays as it is, but the feature may need something new from it.</dd>
+        <dt>Directly involved</dt>
+        <dd>What the description is about, or the files the branch changed.</dd>
+        <dt>Could break</dt>
+        <dd>Depends on a directly involved file (imports it, calls its API, uses its data), so the change can break it.</dd>
+        <dt>Relied on</dt>
+        <dd>A directly involved file depends on it. It usually stays as it is, but the feature may need something new from it.</dd>
         <dt>Loosely linked</dt>
         <dd>Connected only through shared plumbing, such as an API client every screen uses. Counted, not listed.</dd>
         <dt>Often fixed</dt>

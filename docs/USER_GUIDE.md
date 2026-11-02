@@ -92,14 +92,14 @@ Paths can be relative to any folder. The tool matches `src/app/x.ts` to `apps/we
 
 ## 5. Read the results
 
-### The counters
+### The summary
 
 | Counter | Meaning |
 |---|---|
-| **Direct matches** (or **changed**) | Files the requirement is about, or files the branch changed. |
-| **Downstream, could break** | Files that depend on the direct ones: they import them, call their API, use their data, or listen for their events. A change can break these. |
-| **Upstream, it relies on them** | Files the direct ones depend on. These usually don't change, but the feature may need something new from them. |
-| **Loosely linked, not listed** | Files connected only through shared plumbing, such as an API client every screen imports. They are counted so you know they exist, but listing them would bury the useful files. |
+| **Directly involved** (or **changed files**) | Files the requirement is about, or files the branch changed. |
+| **Could break** (downstream) | Files that depend on the direct ones: they import them, call their API, use their data, or listen for their events. A change can break these. |
+| **Relied on** (upstream) | Files the direct ones depend on. These usually don't change, but the feature may need something new from them. |
+| **Loosely linked** (counted, not listed) | Files connected only through shared plumbing, such as an API client every screen imports. They are counted so you know they exist, but listing them would bury the useful files. |
 
 ### The circle
 
@@ -114,7 +114,9 @@ Paths can be relative to any folder. The tool matches `src/app/x.ts` to `apps/we
 ### The list ("What it touches")
 
 The list groups files by area. On each row:
-- **The badge** is the relation: direct, downstream or upstream.
+- **The badge** is the relation: direct, could break or relied on.
+- **The chips above the list** show only one relation; **Find a file** searches by name.
+- **Tests are folded** under "Show N test files to run", to keep the list readable.
 - **The grey line** is the folder.
 - **"often fixed"** means the file needed many bug fixes in the last 12 months. It appears only when the map includes git history.
 
@@ -303,8 +305,8 @@ The requirement may not share any words with it, or the link may be one code can
 **Why is an unrelated file listed?**
 It shares words with the requirement, or depends on a matched file. Click it: the panel says exactly why. A file reached only through an import, with no matching words, is usually low risk.
 
-**What do direct, downstream and upstream mean?**
-See [section 5](#5-read-the-results). In short: what it's about, what could break, and what it relies on.
+**What do "directly involved", "could break" and "relied on" mean?**
+See [section 5](#5-read-the-results). In short: what it's about, what could break, and what it relies on. Older docs call the last two downstream and upstream.
 
 **What does "loosely linked, not listed" mean?**
 These files connect to the change only through shared plumbing, such as an API client imported by every screen. They're counted, not listed.

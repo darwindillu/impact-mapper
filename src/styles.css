@@ -1023,3 +1023,337 @@ figcaption {
     width: auto;
   }
 }
+
+/* --- Guided layout ------------------------------------------------------ */
+
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.step-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.step-n {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.step-aside {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+.step-aside .info {
+  margin-bottom: 0;
+}
+
+.codebase-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.codebase-card .meta {
+  margin: 2px 0 0;
+}
+
+.options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.option {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.option h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.option p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  flex: 1;
+}
+
+.option button,
+.option select {
+  align-self: flex-start;
+  flex: 0 0 auto;
+}
+
+.options-cancel {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.ticket-toggle {
+  margin-left: auto;
+  margin-bottom: 6px;
+}
+
+.ticket-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.ticket-row .info {
+  margin-bottom: 0;
+}
+
+.primary.big {
+  padding: 11px 22px;
+  font-size: 1rem;
+}
+
+.keys {
+  font-size: 0.82rem;
+}
+
+.related {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.related .info {
+  margin-bottom: 0;
+}
+
+.actions {
+  margin-top: 12px;
+}
+
+.toolbar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.headline {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.headline p {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.headline .info {
+  margin-bottom: 0;
+}
+
+.down-text {
+  color: var(--down);
+  font-weight: 600;
+}
+
+.up-text {
+  color: var(--up);
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.warning {
+  border-left: 3px solid var(--down);
+  background: color-mix(in srgb, var(--down) 8%, transparent);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.sub-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 0;
+}
+
+.results {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  margin-top: 4px;
+}
+
+.results .sub-panel {
+  margin: 0;
+}
+
+.graph-panel .details {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+  margin-bottom: 6px;
+}
+
+.list-tools {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.chip-button {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.85rem;
+}
+
+.chip-button span {
+  color: var(--muted);
+}
+
+.chip-button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.chip-button.active span {
+  color: inherit;
+}
+
+.search {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 5px 10px;
+}
+
+.file-list .area h3 {
+  margin-top: 12px;
+}
+
+.empty h3 {
+  margin: 0 0 6px;
+}
+
+.empty ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+}
+
+.foot {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.88rem;
+  padding: 8px 0 0;
+}
+
+.foot a {
+  color: var(--accent);
+}
+
+@media (max-width: 860px) {
+  .options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .results {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .related {
+    margin-left: 0;
+  }
+
+  .step-head {
+    flex-wrap: wrap;
+  }
+
+  .step-aside {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .toolbar {
+    justify-content: flex-start;
+  }
+}
+
+/* Tips at the right edge of a row open leftwards. */
+@media (min-width: 521px) {
+  .step-aside .info-body,
+  .headline .info-body {
+    left: auto;
+    right: 0;
+  }
+}
+
+/* Long results scroll inside the list; the map and details stay in view beside it. */
+@media (min-width: 861px) {
+  .list-scroll {
+    max-height: 640px;
+    overflow: auto;
+    padding-right: 4px;
+  }
+
+  .results .graph-panel {
+    position: sticky;
+    top: 12px;
+    align-self: start;
+  }
+}
+
+.show-tests {
+  margin: 12px 0 4px;
+  display: block;
+}
+
+/* Same-width badges, so file names line up down the list. */
+.file .badge {
+  min-width: 92px;
+  text-align: center;
+}

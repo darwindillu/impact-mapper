@@ -51,7 +51,13 @@ function place(result: ImpactResult): Placed[] {
         const r = RING[ring];
         const last = node.path[node.path.length - 1];
         const parent = last ? (last.from === node.id ? last.to : last.from) : undefined;
-        placed.push({ node, angle, x: C + r * Math.cos(angle), y: C + r * Math.sin(angle), parent: parent && ids.has(parent) ? parent : undefined });
+        placed.push({
+          node,
+          angle,
+          x: C + r * Math.cos(angle),
+          y: C + r * Math.sin(angle),
+          parent: parent && ids.has(parent) ? parent : undefined,
+        });
       });
     }
     start += span;
@@ -92,7 +98,11 @@ export function ImpactGraph({ result, selected, onSelect }: Props) {
 
   return (
     <figure className="graph">
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label="Impact map: the requirement in the middle, the files it touches around it">
+      <svg
+        viewBox={`0 0 ${SIZE} ${SIZE}`}
+        role="img"
+        aria-label="Impact map: the requirement in the middle, the files it touches around it"
+      >
         {[RING.direct, RING.near, RING.far].map((r) => (
           <circle key={r} cx={C} cy={C} r={r} className="ring" />
         ))}
@@ -161,7 +171,7 @@ export function ImpactGraph({ result, selected, onSelect }: Props) {
           ))}
         </span>
         <span className="legend-rings">
-          Inner ring: matches the requirement · outer rings: linked through code · hollow: upstream · dashed: API call
+          Inner ring: directly involved · outer rings: linked through the code · hollow: relied on · dashed line: an API call
           {hidden > 0 ? ` · ${hidden} more in the list` : ""} · tests are in the list only
         </span>
       </figcaption>

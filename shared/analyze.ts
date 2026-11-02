@@ -30,6 +30,8 @@ export interface ImpactNode {
 
 export interface ImpactResult {
   tokens: string[];
+  /** Stem to the word as the requirement wrote it, for display. Missing in results shared before this field existed. */
+  words?: Record<string, string>;
   nodes: ImpactNode[];
   byArea: Partial<Record<Area, ImpactNode[]>>;
   /** Diff mode: changed paths that are not in the map (deleted files, docs, unsupported languages). */
@@ -76,6 +78,17 @@ export function tokenize(text: string): string[] {
     .filter((w) => w.length > 1 && !/^\d+$/.test(w))
     .map(stem)
     .filter((w) => w.length > 1 && !STOP.has(w));
+}
+
+/** Each word's stem mapped to the word as written ("articl" -> "article"), to show people their own words. */
+export function displayWords(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const w of text.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[^A-Za-z0-9]+/)) {
+    if (w.length < 2) continue;
+    const s = stem(w);
+    out[s] ??= w.toLowerCase();
+  }
+  return out;
 }
 
 const AREA_ORDER: [Tag, Area][] = [
@@ -351,6 +364,7 @@ export function analyze(map: SystemMap, requirement: string, opts: AnalyzeOption
   const keptIds = new Set(kept.map((n) => n.id));
   return {
     tokens: reqTokens,
+    words: displayWords([requirement, ...(opts.extraTerms ?? [])].join(" ")),
     nodes: kept,
     byArea,
     ...(changed ? { unmatched: changed.unmatched } : {}),
