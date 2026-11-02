@@ -4,6 +4,8 @@ Paste a feature requirement, or the files a branch changed, and see every screen
 
 The built-in demo shows one React frontend against three different backends (Java/Spring Boot, Python/Django, Go/Gin), all from the public [RealWorld](https://github.com/gothinkster/realworld) project.
 
+**Using it for the first time?** Read the [user guide](docs/USER_GUIDE.md). It covers every feature, how to read results, getting GitHub, Jira and Plane tokens, what leaves your computer, an FAQ and troubleshooting. The app's **Help** button has the short version, and each **?** next to a control explains it.
+
 ## What it does
 
 - **Maps a requirement.** The requirement's words and any UI text it quotes ("Assignee is required") find the files it is about. The graph then shows:

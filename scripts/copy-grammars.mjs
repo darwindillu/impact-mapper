@@ -13,4 +13,6 @@ const languages = ["typescript", "tsx", "javascript", "python", "java", "go", "c
 mkdirSync(out, { recursive: true });
 copyFileSync(join(runtime, "tree-sitter.wasm"), join(out, "tree-sitter.wasm"));
 for (const l of languages) copyFileSync(join(grammars, "out", `tree-sitter-${l}.wasm`), join(out, `tree-sitter-${l}.wasm`));
-console.log(`copied ${languages.length} grammars to ${out}`);
+// The user guide, linked from the in-app Help.
+copyFileSync("docs/USER_GUIDE.md", "public/USER_GUIDE.md");
+console.log(`copied ${languages.length} grammars to ${out}, and the user guide`);
