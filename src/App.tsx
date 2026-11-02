@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Analysis } from "../shared/ai.ts";
 import { buildRequest } from "../shared/request.ts";
 import { analyze, describeStep, type ImpactNode, type ImpactResult } from "../shared/analyze.ts";
-import { buildInsights } from "../shared/insights.ts";
+import { buildInsights, hotFiles } from "../shared/insights.ts";
 import { MAP_VERSION, type SystemMap } from "../shared/map.ts";
 import { ImpactGraph } from "./components/ImpactGraph.tsx";
 import { AREA_ORDER, shortName } from "./lib/names.ts";
@@ -67,6 +67,7 @@ export default function App() {
   }, [sample]);
 
   const insights = useMemo(() => (map && result ? buildInsights(map, result) : undefined), [map, result]);
+  const hot = useMemo(() => new Set(map && result ? hotFiles(map, result).map((n) => n.id) : []), [map, result]);
   const byId = useMemo(() => new Map((map?.files ?? []).map((f) => [f.id, f])), [map]);
   const linkCounts = useMemo(() => {
     const c = { import: 0, http: 0, data: 0, event: 0 };
@@ -365,7 +366,15 @@ export default function App() {
                               <span className="name" title={n.id}>
                                 {shortName(n.id)}
                               </span>
-                              {note && <span className={`risk ${note.risk}`}>{note.change}</span>}
+                              {note ? (
+                                <span className={`risk ${note.risk}`}>{note.change}</span>
+                              ) : (
+                                hot.has(n.id) && (
+                                  <span className="risk high" title="Many fix commits in the last 12 months">
+                                    often fixed
+                                  </span>
+                                )
+                              )}
                               <span className="dir">{n.id.slice(0, -shortName(n.id).length)}</span>
                             </button>
                           </li>
@@ -522,6 +531,11 @@ function NodeDetails({ node, file, ai }: { node: ImpactNode; file?: SystemMap["f
       )}
       {file?.symbols.length ? <p className="small">Defines: {file.symbols.slice(0, 10).join(", ")}</p> : null}
       {file?.card && <p className="small">{file.card}</p>}
+      {file?.churn && (
+        <p className="small">
+          Changed in {file.churn.commits} commit{file.churn.commits === 1 ? "" : "s"} in the last 12 months, {file.churn.fixes} of them fixes.
+        </p>
+      )}
     </aside>
   );
 }

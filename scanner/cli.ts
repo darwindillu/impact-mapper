@@ -18,8 +18,9 @@ Options:
   -o, --out <file>   Output file (default: system-map.json)
   --name <name>      Name shown in the app (default: folder names)
   --cards            Add one-line AI summaries for the most connected files.
-                     Needs ANTHROPIC_API_KEY or OPENAI_API_KEY.
-  --cards-limit <n>  How many files to summarize (default: 120)`);
+                     Needs ANTHROPIC_API_KEY.
+  --cards-limit <n>  How many files to summarize (default: 120)
+  --no-git           Skip the 12-month change history from git`);
   process.exit(1);
 }
 
@@ -31,12 +32,14 @@ async function main() {
   let name: string | undefined;
   let cards = false;
   let cardsLimit = 120;
+  let git = true;
   for (let i = 1; i < args.length; i++) {
     const a = args[i];
     if (a === "-o" || a === "--out") out = args[++i];
     else if (a === "--name") name = args[++i];
     else if (a === "--cards") cards = true;
     else if (a === "--cards-limit") cardsLimit = Number(args[++i]);
+    else if (a === "--no-git") git = false;
     else if (a.startsWith("-")) usage();
     else roots.push(a);
   }
@@ -47,6 +50,7 @@ async function main() {
   const { map, sources } = await scan({
     roots,
     name,
+    git,
     onProgress: (done, total) => {
       if (done % 200 === 0 || done === total) process.stderr.write(`\rParsed ${done}/${total} files`);
     },

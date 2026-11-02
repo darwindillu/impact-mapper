@@ -1,5 +1,6 @@
 // The CLI's scan: walks folders on disk and hands the files to the core.
 
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -14,10 +15,12 @@ const require = createRequire(import.meta.url);
 export interface ScanOptions {
   roots: string[];
   name?: string;
+  /** Add per-file change history from git when a root is a repository (default true). */
+  git?: boolean;
   onProgress?: (done: number, total: number) => void;
 }
 
-export async function scan({ roots, name, onProgress }: ScanOptions): Promise<{ map: SystemMap; sources: Map<string, string> }> {
+export async function scan({ roots, name, git = true, onProgress }: ScanOptions): Promise<{ map: SystemMap; sources: Map<string, string> }> {
   await Parser.init();
   const grammarDir = join(dirname(require.resolve("tree-sitter-wasms/package.json")), "out");
 
@@ -67,5 +70,37 @@ export async function scan({ roots, name, onProgress }: ScanOptions): Promise<{ 
     loadLanguage: (grammar) => Parser.Language.load(join(grammarDir, `tree-sitter-${grammar}.wasm`)),
     onProgress,
   });
+  if (git) addChurn(map, absRoots);
   return { map, sources };
+}
+
+const FIX_COMMIT = /^(fix|bug|hotfix|revert)\b|\bfix(es|ed)?\b/i;
+
+/** How often each file changed in the last 12 months, and how many of those changes were fixes. */
+function addChurn(map: SystemMap, roots: string[]) {
+  const byId = new Map(map.files.map((f) => [f.id, f]));
+  for (const root of roots) {
+    const prefix = roots.length > 1 ? `${basename(root)}/` : "";
+    let log: string;
+    try {
+      log = execFileSync("git", ["-C", root, "log", "--since=12 months ago", "--no-merges", "--name-only", "--relative", "--pretty=format:%x00%s"], {
+        encoding: "utf8",
+        maxBuffer: 256 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      continue; // not a git repository
+    }
+    for (const commit of log.split("\0").slice(1)) {
+      const [subject, ...paths] = commit.split("\n");
+      const fix = FIX_COMMIT.test(subject);
+      for (const p of paths) {
+        const f = p && byId.get(prefix + p.trim());
+        if (!f) continue;
+        f.churn ??= { commits: 0, fixes: 0 };
+        f.churn.commits++;
+        if (fix) f.churn.fixes++;
+      }
+    }
+  }
 }

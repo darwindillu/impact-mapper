@@ -43,6 +43,8 @@ export interface FileNode {
   texts?: string[];
   /** Optional one-line AI summary, written by `scan --cards`. */
   card?: string;
+  /** From git, when the CLI scanned a repository: commits touching the file in the last 12 months, and how many were fixes. */
+  churn?: { commits: number; fixes: number };
 }
 
 export type EdgeType = "import" | "http" | "data" | "event";

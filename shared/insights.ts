@@ -21,6 +21,20 @@ const short = (id: string) => id.replace(/^(table|event):/, "").split("/").slice
 const list = (nodes: ImpactNode[], n = 3) =>
   nodes.slice(0, n).map((x) => short(x.id)).join(", ") + (nodes.length > n ? ` and ${nodes.length - n} more` : "");
 
+/**
+ * Result files in the top tenth of the codebase by fix commits (at least 3).
+ * Empty when the map has no git history.
+ */
+export function hotFiles(map: SystemMap, result: ImpactResult): ImpactNode[] {
+  const fixes = map.files.map((f) => f.churn?.fixes ?? 0).sort((a, b) => b - a);
+  if (!fixes[0]) return [];
+  const threshold = Math.max(3, fixes[Math.floor(fixes.length * 0.1)] ?? 0);
+  const byId = new Map(map.files.map((f) => [f.id, f]));
+  return result.nodes
+    .filter((n) => (byId.get(n.id)?.churn?.fixes ?? 0) >= threshold && n.area !== "Tests")
+    .sort((a, b) => byId.get(b.id)!.churn!.fixes - byId.get(a.id)!.churn!.fixes);
+}
+
 export function buildInsights(map: SystemMap, result: ImpactResult): Insights {
   const byId = new Map(map.files.map((f) => [f.id, f]));
   const of = (area: string) => result.byArea[area as keyof typeof result.byArea] ?? [];
@@ -135,6 +149,18 @@ export function buildInsights(map: SystemMap, result: ImpactResult): Insights {
       steps: ["Open the screen as a normal user", "Complete the new flow end to end", "Reload the page"],
       expected: "The change is visible, saved, and still there after reload.",
       files: [mainScreen.id],
+    });
+  }
+
+  // Files that break often: many fix commits in the last year.
+  const hot = hotFiles(map, result);
+  if (hot.length) {
+    risks.push({
+      text: `${hot
+        .slice(0, 3)
+        .map((n) => `${short(n.id)} (${byId.get(n.id)!.churn!.fixes} fixes in 12 months)`)
+        .join(", ")} ${hot.length === 1 ? "has" : "have"} needed many fixes lately. Give ${hot.length === 1 ? "it" : "them"} extra review and tests.`,
+      files: hot.map((n) => n.id),
     });
   }
 
