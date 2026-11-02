@@ -14,6 +14,12 @@ export interface FileFacts {
   importNames: Record<string, string[]>;
   /** UI text and messages found in string literals and JSX. */
   texts: string[];
+  /** Route prefixes this file applies to routes declared elsewhere. */
+  mounts: Mount[];
+  /** Field names this file's types declare (class fields, DTO properties, struct fields). */
+  fieldsDefined: string[];
+  /** Field names this file reads or writes (obj.field, { field: … }). */
+  fieldsUsed: string[];
   /** Namespace or package the file declares (C#, PHP, Java, Go). */
   namespaces: string[];
   symbols: string[];
@@ -44,6 +50,25 @@ const CALL_TYPES = new Set([
   "object_creation_expression",
 ]);
 const DECORATOR_TYPES = new Set(["decorator", "annotation", "marker_annotation", "attribute"]);
+const FIELD_DEFINITIONS = new Set([
+  "public_field_definition",
+  "property_signature",
+  "field_declaration",
+  "property_declaration",
+  "class_parameter",
+]);
+const FIELD_USES = new Set(["property_identifier", "field_identifier", "shorthand_property_identifier", "shorthand_property_identifier_pattern"]);
+
+/**
+ * A route prefix set in this file for routes declared elsewhere: the router
+ * variable app.use() mounts, the module Django's include() names, or the
+ * function a Gin group is passed to.
+ */
+export interface Mount {
+  prefix: string;
+  kind: "ident" | "module" | "fn";
+  name: string;
+}
 const CLASS_TYPES = new Set([
   "class_declaration",
   "abstract_class_declaration",
@@ -256,6 +281,12 @@ export function extractFacts(tree: Parser.Tree, lang: string): FileFacts {
   const tables = new Set<string>();
   const events: EventRef[] = [];
   const texts = new Set<string>();
+  const mounts: Mount[] = [];
+  const fieldsDefined = new Set<string>();
+  const fieldsUsed = new Set<string>();
+  const addField = (set: Set<string>, name: string | undefined, max: number) => {
+    if (name && set.size < max && name.length >= 5 && /[a-z]/.test(name) && /^[A-Za-z_]\w*$/.test(name)) set.add(name);
+  };
   const addText = (raw: string) => {
     const s = raw.replace(/\$\{\}/g, "…").replace(/\s+/g, " ").trim();
     // Two-word labels like "Save changes" are kept; single words are names, not text.
@@ -340,6 +371,35 @@ export function extractFacts(tree: Parser.Tree, lang: string): FileFacts {
     const looksPath = /^[\w\-/:{}<>[\].*$^?()+\\]*$/.test(value) || value.includes("${}");
     if (!looksPath) return;
 
+    // Mounts: a prefix for routes declared in another file.
+    if (!isDecorator) {
+      const args = context.childForFieldName("arguments")?.namedChildren ?? [];
+      const isFirstArg = args[0]?.id === node.id;
+      const second = args[1];
+      // app.use("/api/users", usersRouter)
+      if (word === "use" && isFirstArg && value.startsWith("/") && second?.type === "identifier") {
+        mounts.push({ prefix: value, kind: "ident", name: second.text });
+        return;
+      }
+      // path("api/", include("conduit.apps.articles.urls"))
+      if (/^(path|re_path|url)$/.test(word) && isFirstArg && second && /^include\b/.test(second.text)) {
+        const mod = /include\(\s*\(?\s*["']([\w.]+)["']/.exec(second.text)?.[1];
+        if (mod) {
+          mounts.push({ prefix: value, kind: "module", name: mod });
+          return;
+        }
+      }
+      // UsersRegister(v1.Group("/users")): the function registers its routes under the group.
+      if (/^(group|namespace|prefix|scope|mount)$/i.test(word)) {
+        const outer = context.parent?.parent;
+        if (outer && CALL_TYPES.has(outer.type)) {
+          const fn = lastSegment(calleeOf(outer));
+          if (/^[A-Za-z_]\w*$/.test(fn)) mounts.push({ prefix: value, kind: "fn", name: fn });
+        }
+        return;
+      }
+    }
+
     if (!isDecorator && CLIENT_CALLEE.test(callee)) {
       // A client call must be a path or URL; a leading ${} or {BASE} is the base URL.
       const cleaned = value.replace(/^(\$\{\}|\{[^}]*\})/, "");
@@ -385,6 +445,17 @@ export function extractFacts(tree: Parser.Tree, lang: string): FileFacts {
       if (names.length) importNames[specs[0]] = [...(importNames[specs[0]] ?? []), ...names];
     }
     if (node.type === "jsx_text") addText(node.text);
+
+    // Fields a type declares, and fields the code reads or writes by name.
+    if (FIELD_DEFINITIONS.has(node.type)) {
+      const declarator = node.descendantsOfType("variable_declarator")[0];
+      addField(fieldsDefined, node.childForFieldName("name")?.text ?? declarator?.childForFieldName("name")?.text ?? nameOf(node), 150);
+    } else if (lang === "python" && node.type === "assignment" && node.parent?.parent?.parent?.type === "class_definition") {
+      addField(fieldsDefined, node.childForFieldName("left")?.text, 150);
+    }
+    if (FIELD_USES.has(node.type)) addField(fieldsUsed, node.text, 600);
+    else if (node.type === "attribute") addField(fieldsUsed, node.childForFieldName("attribute")?.text, 600);
+    else if (node.type === "field_access") addField(fieldsUsed, node.childForFieldName("field")?.text, 600);
     const ns = namespaceOf(node, lang);
     if (ns) namespaces.push(ns);
 
@@ -412,6 +483,13 @@ export function extractFacts(tree: Parser.Tree, lang: string): FileFacts {
       const name = nameOf(node);
       if (name && value && /^(arrow_function|function|function_expression)$/.test(value.type) && name.length > 2) {
         symbols.add(name);
+      }
+      // const usersRouter = require("./users"): the name an app.use() mount refers to.
+      const req = value?.type === "call_expression" && value.childForFieldName("function")?.text === "require";
+      const arg = req ? value!.childForFieldName("arguments")?.namedChildren[0] : undefined;
+      if (name && arg && STRING_TYPES.has(arg.type)) {
+        const spec = stringValue(arg);
+        importNames[spec] = [...(importNames[spec] ?? []), name];
       }
     } else if (DECORATOR_TYPES.has(node.type) && ROUTE_WORDS.test(lastSegment(calleeOf(node))) && !/["'`]/.test(node.text)) {
       // @GetMapping / @Get() with no path serve the class prefix itself.
@@ -474,6 +552,9 @@ export function extractFacts(tree: Parser.Tree, lang: string): FileFacts {
       imports: [...new Set(imports)].filter(Boolean),
       importNames,
       texts: [...texts],
+      mounts,
+      fieldsDefined: [...fieldsDefined],
+      fieldsUsed: [...fieldsUsed],
       namespaces: [...new Set(namespaces)],
       symbols: [...symbols].slice(0, 80),
       routes: [...routes.values()].slice(0, 120),

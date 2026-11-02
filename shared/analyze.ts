@@ -270,12 +270,15 @@ export function analyze(map: SystemMap, requirement: string, opts: AnalyzeOption
           : [...(forward.get(cur.id) ?? []).map((e) => ({ e, to: e.to })), ...(resource ? (reverse.get(cur.id) ?? []).map((e) => ({ e, to: e.from })) : [])];
       for (const { e, to } of next) {
         if (to === cur.id) continue;
+        // Field links are many; follow one only when the requirement names the field.
+        if (e.type === "data" && e.label?.startsWith("field ") && !tokenize(e.label.slice(6)).some((t) => reqTokens.includes(t))) continue;
         const existing = out.get(to);
         if (existing?.relation === "direct") continue;
         // Cross-boundary links are rarer and more telling; an import of a
         // function the requirement names ("optionalEmail") is as good as one.
         const namesMatch = e.type === "import" && !!e.label && tokenize(e.label).some((t) => reqTokens.includes(t));
-        const decay = e.type === "import" && !namesMatch ? 0.55 : 0.7;
+        const isField = e.type === "data" && !!e.label?.startsWith("field ");
+        const decay = isField ? 0.45 : e.type === "import" && !namesMatch ? 0.55 : 0.7;
         const reach = cur.score * decay * e.confidence;
         if ((best.get(to) ?? 0) >= reach) continue;
         best.set(to, reach);

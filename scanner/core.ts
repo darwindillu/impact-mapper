@@ -7,9 +7,15 @@ import { MAP_VERSION, type Edge, type FileNode, type SystemMap, type Tag } from 
 import { extractFacts, type FileFacts } from "./extract.ts";
 import { LANGUAGES, familyOf, prepareSource } from "./languages.ts";
 import { Resolver } from "./resolve.ts";
-import { routeScore } from "./routes.ts";
+import { joinRoutes, routeScore } from "./routes.ts";
 
 const posixDir = (id: string) => (id.includes("/") ? id.slice(0, id.lastIndexOf("/")) : "");
+const GENERIC_FIELDS = new Set(
+  `value values label title description items length count total index status state type types created updated
+  createdat updatedat deletedat createdby updatedby modifiedby children parent options config settings params
+  props style styles class classname message errors error result results response request headers body query
+  string number boolean object array data model models entity entities field fields record records`.split(/\s+/),
+);
 
 export interface ScanInput {
   name: string;
@@ -78,7 +84,7 @@ export async function scanSources(input: ScanInput): Promise<SystemMap> {
       facts.set(src.id, { ...f, lang: src.lang, codeLang, loc: text.split("\n").length });
     } catch {
       // A file that can't be read or parsed is still a node; it just has no facts.
-      const empty = { imports: [], importNames: {}, texts: [], namespaces: [], symbols: [], routes: [], tables: [], events: [] };
+      const empty = { imports: [], importNames: {}, texts: [], mounts: [], fieldsDefined: [], fieldsUsed: [], namespaces: [], symbols: [], routes: [], tables: [], events: [] };
       facts.set(src.id, { ...empty, lang: src.lang, codeLang: src.lang, loc: text.split("\n").length });
     }
     input.onProgress?.(++done, input.files.length);
@@ -113,6 +119,34 @@ export async function scanSources(input: ScanInput): Promise<SystemMap> {
       // The label lists the names imported, so a match on a function name can follow it.
       const names = f.importNames[spec]?.slice(0, 6).join(", ");
       for (const to of resolver.resolve(id, spec, f.codeLang)) addEdge({ from: id, to, type: "import", confidence: 1, ...(names ? { label: names } : {}) });
+    }
+  }
+
+  // Route prefixes set in one file for routes declared in another: the
+  // mounted file's routes are also served under the prefix.
+  const definers = new Map<string, string[]>();
+  for (const [id, f] of facts) for (const s of f.symbols) (definers.get(s) ?? definers.set(s, []).get(s)!).push(id);
+  for (const [id, f] of facts) {
+    for (const m of f.mounts) {
+      let targets: string[] = [];
+      if (m.kind === "ident") {
+        const spec = Object.entries(f.importNames).find(([, names]) => names.includes(m.name))?.[0];
+        targets = spec ? resolver.resolve(id, spec, f.codeLang) : [];
+      } else if (m.kind === "module") {
+        targets = resolver.resolve(id, m.name, "python");
+      } else {
+        const sameRoot = (x: string) => x.split("/")[0] === id.split("/")[0];
+        targets = (definers.get(m.name) ?? []).filter((t) => t !== id && sameRoot(t)).slice(0, 2);
+      }
+      for (const t of targets) {
+        const target = facts.get(t);
+        if (!target) continue;
+        const prefixed = target.routes
+          .filter((r) => r.role === "serves")
+          .map((r) => ({ ...r, path: joinRoutes(m.prefix, r.path) }));
+        target.routes.push(...prefixed.filter((p) => !target.routes.some((r) => r.role === "serves" && r.path === p.path)));
+        addEdge({ from: id, to: t, type: "import", confidence: 1, label: `mounts ${m.prefix}` });
+      }
     }
   }
 
@@ -151,6 +185,32 @@ export async function scanSources(input: ScanInput): Promise<SystemMap> {
       for (const s of hits) {
         addEdge({ from: id, to: s.id, type: "http", label: `${r.method ?? s.method ?? ""} ${r.path}`.trim(), confidence });
       }
+    }
+  }
+
+  // Fields: a file that reads customer.customerEmail depends on the model or
+  // DTO that declares customerEmail, even across stacks where nothing is
+  // imported. Only distinctive fields count; "status" or "items" link everything.
+  const typeFile = (id: string) =>
+    tags.get(id)!.includes("data") || /(^|[/._-])(dto|dtos|model|models|entity|entities|schema|schemas|types?|interfaces?)([/._-]|$)/i.test(id);
+  const declaredBy = new Map<string, string[]>();
+  const usedBy = new Map<string, string[]>();
+  for (const [id, f] of facts) {
+    if (tags.get(id)!.includes("test")) continue;
+    if (typeFile(id)) for (const name of f.fieldsDefined) (declaredBy.get(name) ?? declaredBy.set(name, []).get(name)!).push(id);
+    for (const name of f.fieldsUsed) (usedBy.get(name) ?? usedBy.set(name, []).get(name)!).push(id);
+  }
+  const fieldEdges = new Map<string, { to: string; field: string; users: number }[]>();
+  for (const [name, decl] of declaredBy) {
+    if (decl.length > 3 || GENERIC_FIELDS.has(name.toLowerCase())) continue;
+    const users = (usedBy.get(name) ?? []).filter((u) => !decl.includes(u));
+    if (users.length === 0 || users.length > 30) continue;
+    for (const u of users) for (const d of decl) (fieldEdges.get(u) ?? fieldEdges.set(u, []).get(u)!).push({ to: d, field: name, users: users.length });
+  }
+  for (const [from, list] of fieldEdges) {
+    // The rarest fields say the most; keep a file's dozen strongest.
+    for (const e of list.sort((a, b) => a.users - b.users).slice(0, 12)) {
+      addEdge({ from, to: e.to, type: "data", label: `field ${e.field}`, confidence: 0.6 });
     }
   }
 
