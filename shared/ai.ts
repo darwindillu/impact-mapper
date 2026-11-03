@@ -7,10 +7,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { tokenize } from "./analyze.ts";
-import { LIMITS, type AnalysisRequest } from "./request.ts";
+import { tokenize } from "./analyze.js";
+import { LIMITS, type AnalysisRequest } from "./request.js";
 
-export type { AnalysisRequest } from "./request.ts";
+export type { AnalysisRequest } from "./request.js";
 
 export const ANALYSIS_MODEL = "claude-opus-5-5";
 /** For the small, high-volume jobs: synonyms and per-file summaries. */

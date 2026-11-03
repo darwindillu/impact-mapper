@@ -7,9 +7,9 @@
 // never stored), else the site's key with a small per-IP daily quota.
 
 import { APIError } from "@anthropic-ai/sdk";
-import { draftFrd, expandTerms, explain } from "../shared/ai.ts";
-import type { AnalysisRequest } from "../shared/request.ts";
-import { handleTicket } from "./tickets.ts";
+import { draftFrd, expandTerms, explain } from "../shared/ai.js";
+import type { AnalysisRequest } from "../shared/request.js";
+import { handleTicket } from "./tickets.js";
 
 const DEMO_PER_DAY = Number(process.env.DEMO_REQUESTS_PER_DAY ?? 5);
 const MAX_BODY = 200_000;

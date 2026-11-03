@@ -3,7 +3,7 @@
 // from the visitor's own settings in request headers and are never stored.
 // Requests only go to the services' own hosts, never to an arbitrary URL.
 
-import type { HandlerResult } from "./handler.ts";
+import type { HandlerResult } from "./handler.js";
 
 export interface TicketRequest {
   action: "fetch" | "comment";

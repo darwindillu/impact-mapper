@@ -2,9 +2,9 @@
 // with the same sections Claude's version uses. It lists what the code says;
 // the parts only a person can decide are left as open questions.
 
-import { describeStep, type ImpactNode, type ImpactResult } from "./analyze.ts";
-import type { Insights } from "./insights.ts";
-import type { SystemMap } from "./map.ts";
+import { describeStep, type ImpactNode, type ImpactResult } from "./analyze.js";
+import type { Insights } from "./insights.js";
+import type { SystemMap } from "./map.js";
 
 const cell = (s: string) => s.replace(/\|/g, "\\|").replace(/\n/g, " ");
 const short = (id: string) => id.replace(/^(table|event):/, "").split("/").slice(-2).join("/");

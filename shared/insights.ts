@@ -1,9 +1,9 @@
 // Checklists built from the graph alone, so the tool is useful with no AI key.
 // Each item names the files that prompted it.
 
-import type { ImpactNode, ImpactResult } from "./analyze.ts";
-import { describeStep } from "./analyze.ts";
-import type { SystemMap } from "./map.ts";
+import type { ImpactNode, ImpactResult } from "./analyze.js";
+import { describeStep } from "./analyze.js";
+import type { SystemMap } from "./map.js";
 
 export interface Insight {
   text: string;

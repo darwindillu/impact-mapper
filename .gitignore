@@ -32,3 +32,4 @@ public/grammars
 vscode/dist
 *.vsix
 public/USER_GUIDE.md
+.vercel

@@ -1,8 +1,8 @@
 // The words a codebase uses for things, for synonym expansion: Claude picks
 // from these, so a suggested term always exists in the code.
 
-import { tokenize } from "./analyze.ts";
-import type { SystemMap } from "./map.ts";
+import { tokenize } from "./analyze.js";
+import type { SystemMap } from "./map.js";
 
 export function vocabulary(map: SystemMap, limit = 600): string[] {
   const df = new Map<string, number>();

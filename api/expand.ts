@@ -1,5 +1,5 @@
 // Vercel serverless function: POST /api/expand
-import { handleApi } from "../server/handler.ts";
+import { handleApi } from "../server/handler.js";
 
 export async function POST(request: Request): Promise<Response> {
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "unknown";

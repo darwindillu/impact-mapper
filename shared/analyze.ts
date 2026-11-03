@@ -2,7 +2,7 @@
 // about, then follow the system map to everything upstream and downstream of
 // them. No AI and no API key; the AI step only explains what this finds.
 
-import type { Edge, EdgeType, FileNode, SystemMap, Tag } from "./map.ts";
+import type { Edge, EdgeType, FileNode, SystemMap, Tag } from "./map.js";
 
 export type Relation = "direct" | "downstream" | "upstream";
 export type Area = "Screens" | "APIs" | "Data" | "Reports" | "Notifications" | "Permissions" | "Logic" | "Config" | "Tests";

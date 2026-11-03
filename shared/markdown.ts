@@ -1,6 +1,6 @@
-import type { Analysis } from "./ai.ts";
-import { describeStep, type ImpactResult } from "./analyze.ts";
-import type { Insights } from "./insights.ts";
+import type { Analysis } from "./ai.js";
+import { describeStep, type ImpactResult } from "./analyze.js";
+import type { Insights } from "./insights.js";
 
 /** `requirement` is the feature text, or in diff mode the changed file paths, one per line. */
 export function toMarkdown(requirement: string, mapName: string, result: ImpactResult, insights: Insights, ai?: Analysis): string {

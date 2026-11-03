@@ -1,9 +1,9 @@
 // What the browser sends to /api/analyze: the requirement and the slice of
 // the map the graph walk kept. No SDK imports here; this file ships to the browser.
 
-import type { Area, ImpactResult, Relation } from "./analyze.ts";
-import { describeStep } from "./analyze.ts";
-import type { SystemMap } from "./map.ts";
+import type { Area, ImpactResult, Relation } from "./analyze.js";
+import { describeStep } from "./analyze.js";
+import type { SystemMap } from "./map.js";
 
 export const LIMITS = { requirementChars: 4000, nodes: 60, contextChars: 120_000 };
 
